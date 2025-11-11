@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { GameState } from "./Game";
+import playerSprite from "@/assets/player-sprite.png";
+import executiveSprite from "@/assets/executive-sprite.png";
+import executiveScaredSprite from "@/assets/executive-scared-sprite.png";
+import computerSprite from "@/assets/computer-sprite.png";
+import computerDamagedSprite from "@/assets/computer-damaged-sprite.png";
+import whiteboardSprite from "@/assets/whiteboard-sprite.png";
+import whiteboardPaintedSprite from "@/assets/whiteboard-painted-sprite.png";
+import coworkerSprite from "@/assets/coworker-sprite.png";
+import coworkerPiedSprite from "@/assets/coworker-pied-sprite.png";
+import coffeeSprite from "@/assets/coffee-sprite.png";
+import coinSprite from "@/assets/coin-sprite.png";
 
 interface Position {
   x: number;
@@ -52,6 +63,65 @@ export const GameCanvas = ({
   const [invincibilityTimer, setInvincibilityTimer] = useState(0);
   const [catchCooldown, setCatchCooldown] = useState(0);
   const keysPressed = useRef<Set<string>>(new Set());
+  
+  // Preload all sprite images
+  const [sprites, setSprites] = useState<Record<string, HTMLImageElement>>({});
+  
+  useEffect(() => {
+    const loadSprites = async () => {
+      const spriteMap: Record<string, HTMLImageElement> = {};
+      const loadImage = (src: string): Promise<HTMLImageElement> => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = src;
+        });
+      };
+
+      const [
+        player,
+        executive,
+        executiveScared,
+        computer,
+        computerDamaged,
+        whiteboard,
+        whiteboardPainted,
+        coworker,
+        coworkerPied,
+        coffee,
+        coin,
+      ] = await Promise.all([
+        loadImage(playerSprite),
+        loadImage(executiveSprite),
+        loadImage(executiveScaredSprite),
+        loadImage(computerSprite),
+        loadImage(computerDamagedSprite),
+        loadImage(whiteboardSprite),
+        loadImage(whiteboardPaintedSprite),
+        loadImage(coworkerSprite),
+        loadImage(coworkerPiedSprite),
+        loadImage(coffeeSprite),
+        loadImage(coinSprite),
+      ]);
+
+      spriteMap.player = player;
+      spriteMap.executive = executive;
+      spriteMap.executiveScared = executiveScared;
+      spriteMap.computer = computer;
+      spriteMap.computerDamaged = computerDamaged;
+      spriteMap.whiteboard = whiteboard;
+      spriteMap.whiteboardPainted = whiteboardPainted;
+      spriteMap.coworker = coworker;
+      spriteMap.coworkerPied = coworkerPied;
+      spriteMap.coffee = coffee;
+      spriteMap.coin = coin;
+
+      setSprites(spriteMap);
+    };
+
+    loadSprites();
+  }, []);
   
   const [executives, setExecutives] = useState<Executive[]>([
     {
@@ -592,7 +662,7 @@ const handleAction = () => {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || Object.keys(sprites).length === 0) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -661,221 +731,38 @@ const handleAction = () => {
     }
     ctx.lineWidth = 1;
 
-    // Draw collectibles
+    // Draw collectibles using sprites
     collectibles.forEach((c) => {
       if (c.collected) return;
 
-      ctx.save();
-      ctx.translate(
-        c.position.x * CELL_SIZE + CELL_SIZE / 2,
-        c.position.y * CELL_SIZE + CELL_SIZE / 2
-      );
+      const posX = c.position.x * CELL_SIZE;
+      const posY = c.position.y * CELL_SIZE;
+      const spriteSize = CELL_SIZE * 1.2; // Slightly larger than cell
+      const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
+      const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
       if (c.type === "computer") {
-        // Monitor
-        ctx.fillStyle = "#2a2a2a";
-        ctx.fillRect(-12, -10, 24, 18);
-        ctx.fillStyle = "#1a1a1a";
-        ctx.fillRect(-11, -9, 22, 16);
-        
-        if (c.damaged) {
-          // Damaged screen - cracked and glitching
-          ctx.fillStyle = "#1a1a1a";
-          ctx.fillRect(-10, -8, 20, 14);
-          
-          // Crack lines
-          ctx.strokeStyle = "#ff4444";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(-8, -6);
-          ctx.lineTo(6, 4);
-          ctx.moveTo(8, -4);
-          ctx.lineTo(-6, 6);
-          ctx.stroke();
-          
-          // Sparks
-          ctx.fillStyle = "#ffff00";
-          ctx.fillRect(4, 2, 2, 3);
-          ctx.fillRect(-7, -3, 2, 3);
-        } else {
-          // Normal screen
-          const screenGrad = ctx.createLinearGradient(-10, -8, 10, 8);
-          screenGrad.addColorStop(0, "#4a9eff");
-          screenGrad.addColorStop(1, "#2a6fbb");
-          ctx.fillStyle = screenGrad;
-          ctx.fillRect(-10, -8, 20, 14);
-          
-          // Screen details
-          ctx.fillStyle = "#fff";
-          ctx.fillRect(-8, -6, 7, 1);
-          ctx.fillRect(-8, -4, 10, 1);
-          ctx.fillRect(-8, -2, 6, 1);
-        }
-        
-        // Base
-        ctx.fillStyle = "#3a3a3a";
-        ctx.fillRect(-6, 8, 12, 4);
-        ctx.fillRect(-3, 12, 6, 2);
-        
+        const img = c.damaged ? sprites.computerDamaged : sprites.computer;
+        if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
       } else if (c.type === "wall") {
-        // Whiteboard - painted pink if damaged
-        ctx.fillStyle = c.damaged ? "#ff69b4" : "#e0e0e0";
-        ctx.fillRect(-14, -12, 28, 20);
-        
-        // Frame
-        ctx.strokeStyle = "#888";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(-14, -12, 28, 20);
-        
-        if (c.damaged) {
-          // Pink graffiti art
-          ctx.fillStyle = "#ff1493";
-          ctx.font = "bold 12px Arial";
-          ctx.fillText("♥ Y2K ♥", -12, -2);
-          ctx.fillStyle = "#ff69b4";
-          ctx.font = "bold 10px Arial";
-          ctx.fillText("REBEL!", -10, 6);
-        } else {
-          // Original graffiti placeholder
-          ctx.fillStyle = "#ff6b9d";
-          ctx.font = "bold 10px Arial";
-          ctx.fillText("GRAFFITI", -13, -2);
-          ctx.fillText("HERE!", -10, 5);
-        }
-        
-        // Markers at bottom
-        ctx.fillStyle = "#333";
-        ctx.fillRect(-10, 10, 3, 8);
-        ctx.fillStyle = "#ff1493";
-        ctx.fillRect(-6, 10, 3, 8);
-        ctx.fillStyle = "#00ffff";
-        ctx.fillRect(-2, 10, 3, 8);
-        
+        const img = c.damaged ? sprites.whiteboardPainted : sprites.whiteboard;
+        if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
       } else if (c.type === "coworker") {
-        // Head
-        ctx.fillStyle = "#f0c674";
-        ctx.beginPath();
-        ctx.arc(0, -8, 7, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Hair
-        ctx.fillStyle = "#4a2511";
-        ctx.beginPath();
-        ctx.arc(-2, -12, 4, 0, Math.PI);
-        ctx.arc(2, -12, 4, 0, Math.PI);
-        ctx.fill();
-        
-        if (c.damaged) {
-          // Pie on face!
-          ctx.fillStyle = "#f5deb3";
-          ctx.beginPath();
-          ctx.arc(0, -7, 9, 0, Math.PI * 2);
-          ctx.fill();
-          
-          // Whipped cream
-          ctx.fillStyle = "#ffffff";
-          ctx.beginPath();
-          ctx.arc(-3, -8, 3, 0, Math.PI * 2);
-          ctx.arc(3, -8, 3, 0, Math.PI * 2);
-          ctx.arc(0, -10, 3, 0, Math.PI * 2);
-          ctx.fill();
-          
-          // Eyes peeking through
-          ctx.fillStyle = "#000";
-          ctx.fillRect(-4, -9, 2, 1);
-          ctx.fillRect(2, -9, 2, 1);
-        } else {
-          // Normal face
-          // Eyes
-          ctx.fillStyle = "#000";
-          ctx.fillRect(-4, -9, 2, 2);
-          ctx.fillRect(2, -9, 2, 2);
-          
-          // Smile
-          ctx.strokeStyle = "#000";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(0, -6, 3, 0, Math.PI);
-          ctx.stroke();
-        }
-        
-        // Body - shirt
-        const shirtGrad = ctx.createLinearGradient(-8, 0, 8, 14);
-        shirtGrad.addColorStop(0, "#6a9eff");
-        shirtGrad.addColorStop(1, "#4a6fbb");
-        ctx.fillStyle = shirtGrad;
-        ctx.fillRect(-8, 0, 16, 14);
-        
-        // Tie
-        ctx.fillStyle = "#333";
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(-2, 8);
-        ctx.lineTo(0, 12);
-        ctx.lineTo(2, 8);
-        ctx.closePath();
-        ctx.fill();
-        
+        const img = c.damaged ? sprites.coworkerPied : sprites.coworker;
+        if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
       } else if (c.type === "coffee") {
-        // Machine body
-        const machineGrad = ctx.createLinearGradient(-12, -14, 12, 14);
-        machineGrad.addColorStop(0, "#8b4513");
-        machineGrad.addColorStop(1, "#5a2a0a");
-        ctx.fillStyle = machineGrad;
-        ctx.fillRect(-12, -14, 24, 28);
-        
-        // Display panel
-        ctx.fillStyle = "#000";
-        ctx.fillRect(-8, -10, 16, 8);
-        ctx.fillStyle = "#0f0";
-        ctx.font = "8px Arial";
-        ctx.fillText("COFFEE", -6, -4);
-        
-        // Dispenser
-        ctx.fillStyle = "#333";
-        ctx.fillRect(-6, 2, 12, 6);
-        ctx.fillStyle = "#222";
-        ctx.fillRect(-4, 4, 8, 3);
-        
-        // Cup
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(-3, 8, 6, 6);
-        
-        // Steam
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(-1, 6);
-        ctx.bezierCurveTo(-2, 2, 0, 0, 1, -2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(1, 6);
-        ctx.bezierCurveTo(2, 2, 0, 0, -1, -2);
-        ctx.stroke();
+        if (sprites.coffee) ctx.drawImage(sprites.coffee, offsetX, offsetY, spriteSize, spriteSize);
       } else if (c.type === "coin") {
-        // Shiny Y2K coin
-        const coinGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, 12);
-        coinGrad.addColorStop(0, "#fff7b3");
-        coinGrad.addColorStop(0.6, "#ffe066");
-        coinGrad.addColorStop(1, "#ffc107");
-        ctx.fillStyle = coinGrad;
-        ctx.beginPath();
-        ctx.arc(0, 0, 10, 0, Math.PI * 2);
-        ctx.fill();
-        // Sparkle
-        ctx.fillStyle = "rgba(255,255,255,0.9)";
-        ctx.beginPath();
-        ctx.moveTo(-2, -4);
-        ctx.lineTo(0, -8);
-        ctx.lineTo(2, -4);
-        ctx.closePath();
-        ctx.fill();
+        if (sprites.coin) {
+          // Make coin slightly smaller and animated
+          const coinSize = CELL_SIZE * 0.8;
+          const coinOffset = (CELL_SIZE - coinSize) / 2;
+          ctx.drawImage(sprites.coin, posX + coinOffset, posY + coinOffset, coinSize, coinSize);
+        }
       }
-
-      ctx.restore();
     });
 
-    // Draw executives with vision cones
+    // Draw executives with vision cones using sprites
     executives.forEach((exec) => {
       if (!exec.isScared) {
         // Draw vision cone
@@ -904,116 +791,40 @@ const handleAction = () => {
         ctx.restore();
       }
 
-      // Draw executive
-      ctx.save();
-      ctx.translate(
-        exec.position.x * CELL_SIZE + CELL_SIZE / 2,
-        exec.position.y * CELL_SIZE + CELL_SIZE / 2
-      );
+      // Draw executive sprite
+      const posX = exec.position.x * CELL_SIZE;
+      const posY = exec.position.y * CELL_SIZE;
+      const spriteSize = CELL_SIZE * 1.4;
+      const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
+      const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
-      // Body - suit
-      const suitGrad = ctx.createLinearGradient(-10, 0, 10, 16);
-      if (exec.isScared) {
-        suitGrad.addColorStop(0, "#b0d4e8");
-        suitGrad.addColorStop(1, "#87CEEB");
-      } else {
-        suitGrad.addColorStop(0, "#444");
-        suitGrad.addColorStop(1, "#222");
-      }
-      ctx.fillStyle = suitGrad;
-      ctx.fillRect(-10, 4, 20, 16);
-      
-      // Tie
-      ctx.fillStyle = exec.isScared ? "#5a8fb0" : "#8b0000";
-      ctx.beginPath();
-      ctx.moveTo(0, 4);
-      ctx.lineTo(-3, 12);
-      ctx.lineTo(0, 18);
-      ctx.lineTo(3, 12);
-      ctx.closePath();
-      ctx.fill();
-      
-      // Arms
-      ctx.fillStyle = exec.isScared ? "#b0d4e8" : "#333";
-      ctx.fillRect(-14, 8, 4, 10);
-      ctx.fillRect(10, 8, 4, 10);
-
-      // Head (bald with ponytail)
-      ctx.fillStyle = "#f0c674";
-      ctx.beginPath();
-      ctx.arc(0, -6, 10, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Bald spot on top
-      ctx.fillStyle = "#e0b664";
-      ctx.beginPath();
-      ctx.ellipse(0, -10, 7, 5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Glasses
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(-4, -6, 3, 0, Math.PI * 2);
-      ctx.arc(4, -6, 3, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-1, -6);
-      ctx.lineTo(1, -6);
-      ctx.stroke();
-      
-      // Eyes behind glasses
-      ctx.fillStyle = "#000";
-      ctx.fillRect(-5, -7, 2, 2);
-      ctx.fillRect(3, -7, 2, 2);
-      
-      // Grumpy mouth
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(0, -2, 3, Math.PI, Math.PI * 2);
-      ctx.stroke();
-
-      if (!exec.isScared) {
-        // Ponytail
-        ctx.fillStyle = "#8b4513";
-        ctx.beginPath();
-        ctx.ellipse(-12, 0, 3, 8, Math.PI / 4, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Ponytail tie
-        ctx.fillStyle = "#333";
-        ctx.fillRect(-13, -2, 4, 3);
-      } else {
-        // Ponytail flies off when scared
-        ctx.fillStyle = "#8b4513";
-        ctx.save();
-        ctx.translate(-15, -12);
-        ctx.rotate(Math.PI / 3);
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 3, 8, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
+      const img = exec.isScared ? sprites.executiveScared : sprites.executive;
+      if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
 
       // Speech bubble
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.fillRect(-20, -28, 40, 16);
-      ctx.fillStyle = "#000";
-      ctx.font = "8px Arial";
-      ctx.textAlign = "center";
-      const speech = exec.isScared ? exec.scaredSpeech : exec.speech;
-      ctx.fillText(speech, 0, -18);
-
-      ctx.restore();
+      if (!exec.isScared) {
+        ctx.save();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.fillRect(posX - 20, posY - 35, 80, 20);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(posX - 20, posY - 35, 80, 20);
+        ctx.fillStyle = "#000";
+        ctx.font = "8px 'Press Start 2P'";
+        ctx.textAlign = "center";
+        ctx.fillText(exec.speech, posX + 20, posY - 22);
+        ctx.restore();
+      }
     });
 
-    // Draw player
+    // Draw player sprite
+    const posX = player.x * CELL_SIZE;
+    const posY = player.y * CELL_SIZE;
+    const spriteSize = CELL_SIZE * 1.4;
+    const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
+    const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
+
     ctx.save();
-    ctx.translate(
-      player.x * CELL_SIZE + CELL_SIZE / 2,
-      player.y * CELL_SIZE + CELL_SIZE / 2
-    );
 
     // Invincibility effect - flashing
     if (invincibilityTimer > 0) {
@@ -1024,89 +835,20 @@ const handleAction = () => {
       ctx.shadowColor = "#00ffff";
     }
 
-    // Head
-    ctx.fillStyle = "#f0c674";
-    ctx.beginPath();
-    ctx.arc(0, -8, 8, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Hair - long flowing
-    ctx.fillStyle = "#4a2511";
-    ctx.beginPath();
-    ctx.arc(-3, -12, 6, 0, Math.PI);
-    ctx.arc(3, -12, 6, 0, Math.PI);
-    ctx.fill();
-    
-    // Hair strands
-    ctx.strokeStyle = "#4a2511";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-8, -10);
-    ctx.bezierCurveTo(-10, -6, -10, 0, -9, 4);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(8, -10);
-    ctx.bezierCurveTo(10, -6, 10, 0, 9, 4);
-    ctx.stroke();
-    
-    // Eyes
-    ctx.fillStyle = "#000";
-    ctx.fillRect(-5, -9, 2, 3);
-    ctx.fillRect(3, -9, 2, 3);
-    
-    // Determined smile
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, -5, 4, 0.2, Math.PI - 0.2);
-    ctx.stroke();
-    
-    // Body - bright outfit with glow
+    // Speed boost glow
     if (speedBoost > 0) {
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 25;
       ctx.shadowColor = "#FFD700";
     }
-    
-    const outfitGrad = ctx.createLinearGradient(-10, 0, 10, 18);
-    if (speedBoost > 0) {
-      outfitGrad.addColorStop(0, "#FFD700");
-      outfitGrad.addColorStop(1, "#FFA500");
-    } else {
-      outfitGrad.addColorStop(0, "#FF1493");
-      outfitGrad.addColorStop(1, "#C71585");
+
+    if (sprites.player) {
+      ctx.drawImage(sprites.player, offsetX, offsetY, spriteSize, spriteSize);
     }
-    ctx.fillStyle = outfitGrad;
-    ctx.fillRect(-10, 0, 20, 18);
-    
-    ctx.shadowBlur = 0;
-    
-    // Blazer details
-    ctx.fillStyle = speedBoost > 0 ? "#FFB700" : "#FF69B4";
-    ctx.fillRect(-10, 0, 4, 18);
-    ctx.fillRect(6, 0, 4, 18);
-    
-    // Belt
-    ctx.fillStyle = "#333";
-    ctx.fillRect(-10, 10, 20, 3);
-    
-    // Arms
-    ctx.fillStyle = speedBoost > 0 ? "#FFD700" : "#FF1493";
-    ctx.fillRect(-14, 4, 4, 12);
-    ctx.fillRect(10, 4, 4, 12);
-    
-    // Hands
-    ctx.fillStyle = "#f0c674";
-    ctx.beginPath();
-    ctx.arc(-12, 16, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(12, 16, 3, 0, Math.PI * 2);
-    ctx.fill();
 
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     ctx.restore();
-  }, [player, executives, collectibles, speedBoost, invincibilityTimer]);
+  }, [player, executives, collectibles, speedBoost, invincibilityTimer, sprites]);
 
   return (
     <canvas
