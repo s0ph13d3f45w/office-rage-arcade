@@ -56,7 +56,7 @@ export const Game = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-white flex flex-col">
       <div className="w-full px-4 py-4">
         <img 
           src={newspaperHeader} 
