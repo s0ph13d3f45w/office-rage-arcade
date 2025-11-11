@@ -47,15 +47,19 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        y2k: {
-          bubblegum: "hsl(var(--y2k-bubblegum))",
-          cyan: "hsl(var(--y2k-cyber-cyan))",
-          purple: "hsl(var(--y2k-electric-purple))",
-          lime: "hsl(var(--y2k-lime))",
-          chrome: "hsl(var(--y2k-chrome))",
-          holographic: "hsl(var(--y2k-holographic))",
-          scared: "hsl(var(--y2k-scared-blue))",
+        arcade: {
+          pink: "hsl(var(--arcade-neon-pink))",
+          cyan: "hsl(var(--arcade-neon-cyan))",
+          yellow: "hsl(var(--arcade-neon-yellow))",
+          purple: "hsl(var(--arcade-neon-purple))",
+          green: "hsl(var(--arcade-neon-green))",
+          orange: "hsl(var(--arcade-neon-orange))",
+          dark: "hsl(var(--arcade-dark-bg))",
+          grid: "hsl(var(--arcade-grid))",
         },
+      },
+      fontFamily: {
+        'arcade': ['Press Start 2P', 'monospace'],
       },
       borderRadius: {
         lg: "var(--radius)",

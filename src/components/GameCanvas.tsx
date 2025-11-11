@@ -597,15 +597,27 @@ const handleAction = () => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Clear canvas with Y2K gradient background
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, "#e8d5ff");
-    gradient.addColorStop(0.5, "#d5e8ff");
-    gradient.addColorStop(1, "#ffe8f5");
-    ctx.fillStyle = gradient;
+    // Clear canvas with 1980s arcade dark background
+    ctx.fillStyle = "#0a0a1a";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Add grid effect for retro arcade feel
+    ctx.strokeStyle = "rgba(255, 0, 255, 0.1)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 20) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 20) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
 
-    // Draw maze walls with 3D effect (thinner walls)
+    // Draw maze walls with neon 1980s effect (thinner walls)
     const WALL_THICKNESS = 8; // Thin walls
     const WALL_OFFSET = (CELL_SIZE - WALL_THICKNESS) / 2;
     
@@ -615,28 +627,25 @@ const handleAction = () => {
           const posX = x * CELL_SIZE + WALL_OFFSET;
           const posY = y * CELL_SIZE + WALL_OFFSET;
           
-          // Wall with glossy Y2K effect
-          const wallGradient = ctx.createLinearGradient(posX, posY, posX + WALL_THICKNESS, posY + WALL_THICKNESS);
-          wallGradient.addColorStop(0, "#b8a8ff");
-          wallGradient.addColorStop(0.5, "#9a8aef");
-          wallGradient.addColorStop(1, "#7a6adf");
-          ctx.fillStyle = wallGradient;
+          // Neon wall with glow
+          ctx.fillStyle = "#ff00ff";
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = "#ff00ff";
           ctx.fillRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS);
           
-          // Glossy highlight
-          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-          ctx.fillRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS / 3);
+          // Inner glow
+          ctx.fillStyle = "#ff66ff";
+          ctx.shadowBlur = 5;
+          ctx.fillRect(posX + 1, posY + 1, WALL_THICKNESS - 2, WALL_THICKNESS - 2);
           
-          // Chrome edge
-          ctx.strokeStyle = "#d0c0ff";
-          ctx.lineWidth = 1;
-          ctx.strokeRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS);
+          // Reset shadow
+          ctx.shadowBlur = 0;
         }
       }
     }
     
-    // Draw subtle grid on walkable spaces
-    ctx.strokeStyle = "rgba(200, 180, 255, 0.2)";
+    // Draw subtle neon grid on walkable spaces
+    ctx.strokeStyle = "rgba(0, 255, 255, 0.15)";
     ctx.lineWidth = 1;
     for (let x = 0; x <= MAZE_WIDTH; x++) {
       ctx.beginPath();
@@ -1104,8 +1113,8 @@ const handleAction = () => {
       ref={canvasRef}
       width={MAZE_WIDTH * CELL_SIZE}
       height={MAZE_HEIGHT * CELL_SIZE}
-      className="w-full h-auto"
-      style={{ background: "linear-gradient(135deg, #e8d5ff, #d5e8ff, #ffe8f5)" }}
+      className="w-full h-auto arcade-glow"
+      style={{ background: "#0a0a1a", border: "3px solid #ff00ff", boxShadow: "0 0 20px #ff00ff" }}
     />
   );
 };
