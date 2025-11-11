@@ -3,6 +3,7 @@ import { GameCanvas } from "./GameCanvas";
 import { GameHUD } from "./GameHUD";
 import { GameInstructions } from "./GameInstructions";
 import { GameOver } from "./GameOver";
+import newspaperHeader from "@/assets/newspaper-header.jpeg";
 
 export interface GameState {
   score: number;
@@ -58,6 +59,11 @@ export const Game = () => {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-4">
         <div className="flex-1 flex flex-col gap-4">
+          <img 
+            src={newspaperHeader} 
+            alt="Did Women Ruin the Workplace? - Interesting Times Opinion" 
+            className="w-full h-auto rounded-lg shadow-lg"
+          />
           <GameHUD
             score={gameState.score}
             lives={gameState.lives}
