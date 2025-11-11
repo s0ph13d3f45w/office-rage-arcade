@@ -238,6 +238,26 @@ export const GameCanvas = ({
     };
   }, [player, collectibles, executives]);
 
+  // Ensure player starts on a walkable tile (avoid spawning inside walls)
+  useEffect(() => {
+    const gx = Math.floor(player.x);
+    const gy = Math.floor(player.y);
+    if (maze[gy]?.[gx]) {
+      const cx = Math.floor(MAZE_WIDTH / 2);
+      const cy = Math.floor(MAZE_HEIGHT / 2);
+      outer: for (let r = 0; r < Math.max(MAZE_WIDTH, MAZE_HEIGHT); r++) {
+        for (let y = cy - r; y <= cy + r; y++) {
+          for (let x = cx - r; x <= cx + r; x++) {
+            if (x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x]) {
+              setPlayer({ x, y });
+              break outer;
+            }
+          }
+        }
+      }
+    }
+  }, []);
+
 const handleAction = () => {
     // Check for nearby collectibles (destroy instead of collect -> spawn a coin)
     const nearby = collectibles.find(
@@ -320,32 +340,35 @@ const handleAction = () => {
 
       if (dx !== 0 || dy !== 0) {
         setPlayerDirection({ x: dx, y: dy });
-        setPlayer((prev) => {
-          let newX = prev.x;
-          let newY = prev.y;
+          setPlayer((prev) => {
+            const isOpen = (x: number, y: number) =>
+              x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x];
 
-          // Attempt horizontal move first
-          if (dx !== 0) {
-            const attemptedX = Math.max(0, Math.min(MAZE_WIDTH - 1, prev.x + dx));
-            const gridX = Math.floor(attemptedX);
-            const gridY = Math.floor(prev.y);
-            if (!maze[gridY] || !maze[gridY][gridX]) {
-              if (!(maze[gridY] && maze[gridY][gridX])) newX = attemptedX;
+            let nx = prev.x;
+            let ny = prev.y;
+
+            // Attempt horizontal move first with solid wall collision
+            if (dx !== 0) {
+              const tx = prev.x + dx;
+              const gx = Math.floor(tx);
+              const gy = Math.floor(prev.y);
+              if (isOpen(gx, gy)) {
+                nx = Math.min(MAZE_WIDTH - 0.001, Math.max(0, tx));
+              }
             }
-          }
 
-          // Then vertical move
-          if (dy !== 0) {
-            const attemptedY = Math.max(0, Math.min(MAZE_HEIGHT - 1, prev.y + dy));
-            const gridX = Math.floor(newX);
-            const gridY = Math.floor(attemptedY);
-            if (!maze[gridY] || !maze[gridY][gridX]) {
-              if (!(maze[gridY] && maze[gridY][gridX])) newY = attemptedY;
+            // Then vertical move with solid wall collision
+            if (dy !== 0) {
+              const ty = prev.y + dy;
+              const gx = Math.floor(nx);
+              const gy = Math.floor(ty);
+              if (isOpen(gx, gy)) {
+                ny = Math.min(MAZE_HEIGHT - 0.001, Math.max(0, ty));
+              }
             }
-          }
 
-          return { x: newX, y: newY };
-        });
+            return { x: nx, y: ny };
+          });
       }
 
       // Update speed boost
