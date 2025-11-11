@@ -424,10 +424,11 @@ export const GameCanvas = ({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Clear canvas with gradient background
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, "#1a0a2e");
-    gradient.addColorStop(1, "#0f0520");
+    // Clear canvas with Y2K gradient background
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, "#e8d5ff");
+    gradient.addColorStop(0.5, "#d5e8ff");
+    gradient.addColorStop(1, "#ffe8f5");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -438,28 +439,29 @@ export const GameCanvas = ({
           const posX = x * CELL_SIZE;
           const posY = y * CELL_SIZE;
           
-          // Wall shadow
-          ctx.fillStyle = "#000";
-          ctx.fillRect(posX + 2, posY + 2, CELL_SIZE - 2, CELL_SIZE - 2);
-          
-          // Wall base
+          // Wall with glossy Y2K effect
           const wallGradient = ctx.createLinearGradient(posX, posY, posX + CELL_SIZE, posY + CELL_SIZE);
-          wallGradient.addColorStop(0, "#4a4a6a");
-          wallGradient.addColorStop(1, "#2a2a3a");
+          wallGradient.addColorStop(0, "#b8a8ff");
+          wallGradient.addColorStop(0.5, "#9a8aef");
+          wallGradient.addColorStop(1, "#7a6adf");
           ctx.fillStyle = wallGradient;
-          ctx.fillRect(posX, posY, CELL_SIZE - 2, CELL_SIZE - 2);
+          ctx.fillRect(posX, posY, CELL_SIZE, CELL_SIZE);
           
-          // Wall highlight
-          ctx.fillStyle = "#5a5a7a";
-          ctx.fillRect(posX, posY, CELL_SIZE - 2, 2);
-          ctx.fillRect(posX, posY, 2, CELL_SIZE - 2);
+          // Glossy highlight
+          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+          ctx.fillRect(posX, posY, CELL_SIZE, CELL_SIZE / 3);
+          
+          // Chrome edge
+          ctx.strokeStyle = "#d0c0ff";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(posX, posY, CELL_SIZE, CELL_SIZE);
         }
       }
     }
     
-    // Draw grid on walkable spaces
-    ctx.strokeStyle = "#2d1b4e";
-    ctx.lineWidth = 0.5;
+    // Draw subtle grid on walkable spaces
+    ctx.strokeStyle = "rgba(200, 180, 255, 0.2)";
+    ctx.lineWidth = 1;
     for (let x = 0; x <= MAZE_WIDTH; x++) {
       ctx.beginPath();
       ctx.moveTo(x * CELL_SIZE, 0);
@@ -844,7 +846,8 @@ export const GameCanvas = ({
       ref={canvasRef}
       width={MAZE_WIDTH * CELL_SIZE}
       height={MAZE_HEIGHT * CELL_SIZE}
-      className="w-full h-auto bg-arcade-dark"
+      className="w-full h-auto"
+      style={{ background: "linear-gradient(135deg, #e8d5ff, #d5e8ff, #ffe8f5)" }}
     />
   );
 };

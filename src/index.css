@@ -8,71 +8,73 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Retro Arcade Theme - 1980s Neon */
-    --background: 270 50% 8%;
-    --foreground: 300 100% 95%;
+    /* Y2K Theme - 2000s Cyber Glossy */
+    --background: 260 100% 97%;
+    --foreground: 280 90% 10%;
 
-    --card: 270 40% 12%;
-    --card-foreground: 300 100% 95%;
+    --card: 0 0% 100%;
+    --card-foreground: 280 90% 10%;
 
-    --popover: 270 50% 10%;
-    --popover-foreground: 300 100% 95%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 280 90% 10%;
 
-    /* Hot Pink - Primary arcade color */
-    --primary: 328 100% 54%;
+    /* Hot Pink - Y2K bubblegum */
+    --primary: 330 100% 65%;
     --primary-foreground: 0 0% 100%;
 
-    /* Cyan - Secondary arcade color */
-    --secondary: 180 100% 50%;
-    --secondary-foreground: 270 50% 8%;
+    /* Cyber Cyan - Holographic */
+    --secondary: 190 100% 60%;
+    --secondary-foreground: 280 90% 10%;
 
-    /* Purple muted */
-    --muted: 270 30% 20%;
-    --muted-foreground: 270 10% 70%;
+    /* Purple muted - Chrome */
+    --muted: 260 50% 90%;
+    --muted-foreground: 260 20% 40%;
 
-    /* Lime Green - Accent */
-    --accent: 80 100% 50%;
-    --accent-foreground: 270 50% 8%;
+    /* Lime Green - Electric */
+    --accent: 150 100% 50%;
+    --accent-foreground: 280 90% 10%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 270 40% 25%;
-    --input: 270 40% 15%;
-    --ring: 328 100% 54%;
+    --border: 270 70% 85%;
+    --input: 260 50% 95%;
+    --ring: 330 100% 65%;
 
-    --radius: 0.25rem;
+    --radius: 1rem;
 
-    /* Game specific colors */
-    --arcade-neon-pink: 328 100% 54%;
-    --arcade-neon-cyan: 180 100% 50%;
-    --arcade-neon-yellow: 60 100% 50%;
-    --arcade-neon-green: 80 100% 50%;
-    --arcade-dark-bg: 270 50% 8%;
-    --arcade-scared-blue: 200 80% 70%;
-    --arcade-grid: 270 40% 20%;
+    /* Y2K Game specific colors */
+    --y2k-bubblegum: 330 100% 65%;
+    --y2k-cyber-cyan: 190 100% 60%;
+    --y2k-electric-purple: 270 100% 70%;
+    --y2k-lime: 150 100% 50%;
+    --y2k-chrome: 0 0% 85%;
+    --y2k-holographic: 280 100% 75%;
+    --y2k-scared-blue: 200 100% 85%;
+    --y2k-bg-gradient-start: 260 100% 97%;
+    --y2k-bg-gradient-end: 290 100% 95%;
   }
 
   .dark {
-    --background: 270 50% 8%;
-    --foreground: 300 100% 95%;
-    --card: 270 40% 12%;
-    --card-foreground: 300 100% 95%;
-    --popover: 270 50% 10%;
-    --popover-foreground: 300 100% 95%;
-    --primary: 328 100% 54%;
+    --background: 260 100% 97%;
+    --foreground: 280 90% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 280 90% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 280 90% 10%;
+    --primary: 330 100% 65%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 180 100% 50%;
-    --secondary-foreground: 270 50% 8%;
-    --muted: 270 30% 20%;
-    --muted-foreground: 270 10% 70%;
-    --accent: 80 100% 50%;
-    --accent-foreground: 270 50% 8%;
+    --secondary: 190 100% 60%;
+    --secondary-foreground: 280 90% 10%;
+    --muted: 260 50% 90%;
+    --muted-foreground: 260 20% 40%;
+    --accent: 150 100% 50%;
+    --accent-foreground: 280 90% 10%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 100%;
-    --border: 270 40% 25%;
-    --input: 270 40% 15%;
-    --ring: 328 100% 54%;
+    --border: 270 70% 85%;
+    --input: 260 50% 95%;
+    --ring: 330 100% 65%;
   }
 }
 
@@ -83,18 +85,44 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Press Start 2P', cursive;
-    font-size: 12px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
     line-height: 1.6;
+    background: linear-gradient(135deg, hsl(var(--y2k-bg-gradient-start)), hsl(var(--y2k-bg-gradient-end)));
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Press Start 2P', cursive;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
   }
 }
 
 @layer utilities {
-  .text-shadow-neon {
-    text-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+  .text-shadow-chrome {
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 20px rgba(255, 255, 255, 0.3);
+  }
+  
+  .glossy {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.1));
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+  
+  .holographic {
+    background: linear-gradient(
+      135deg,
+      hsl(330, 100%, 75%) 0%,
+      hsl(270, 100%, 75%) 25%,
+      hsl(190, 100%, 75%) 50%,
+      hsl(150, 100%, 75%) 75%,
+      hsl(330, 100%, 75%) 100%
+    );
+    background-size: 200% 200%;
+    animation: holographic-shift 3s ease infinite;
+  }
+  
+  @keyframes holographic-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
   }
 }

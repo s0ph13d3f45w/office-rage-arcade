@@ -47,14 +47,14 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        arcade: {
-          pink: "hsl(var(--arcade-neon-pink))",
-          cyan: "hsl(var(--arcade-neon-cyan))",
-          yellow: "hsl(var(--arcade-neon-yellow))",
-          green: "hsl(var(--arcade-neon-green))",
-          dark: "hsl(var(--arcade-dark-bg))",
-          scared: "hsl(var(--arcade-scared-blue))",
-          grid: "hsl(var(--arcade-grid))",
+        y2k: {
+          bubblegum: "hsl(var(--y2k-bubblegum))",
+          cyan: "hsl(var(--y2k-cyber-cyan))",
+          purple: "hsl(var(--y2k-electric-purple))",
+          lime: "hsl(var(--y2k-lime))",
+          chrome: "hsl(var(--y2k-chrome))",
+          holographic: "hsl(var(--y2k-holographic))",
+          scared: "hsl(var(--y2k-scared-blue))",
         },
       },
       borderRadius: {

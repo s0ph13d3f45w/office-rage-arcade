@@ -65,7 +65,7 @@ export const Game = () => {
             onPause={togglePause}
             isPaused={gameState.isPaused}
           />
-          <div className="relative border-4 border-primary rounded-lg overflow-hidden shadow-[0_0_20px_rgba(255,20,147,0.5)]">
+          <div className="relative border-4 border-primary rounded-3xl overflow-hidden shadow-[0_8px_40px_rgba(255,105,180,0.5)] glossy">
             <GameCanvas
               gameState={gameState}
               updateScore={updateScore}
