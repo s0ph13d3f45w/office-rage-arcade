@@ -598,29 +598,32 @@ const handleAction = () => {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw maze walls with 3D effect
+    // Draw maze walls with 3D effect (thinner walls)
+    const WALL_THICKNESS = 8; // Thin walls
+    const WALL_OFFSET = (CELL_SIZE - WALL_THICKNESS) / 2;
+    
     for (let y = 0; y < MAZE_HEIGHT; y++) {
       for (let x = 0; x < MAZE_WIDTH; x++) {
         if (maze[y][x]) {
-          const posX = x * CELL_SIZE;
-          const posY = y * CELL_SIZE;
+          const posX = x * CELL_SIZE + WALL_OFFSET;
+          const posY = y * CELL_SIZE + WALL_OFFSET;
           
           // Wall with glossy Y2K effect
-          const wallGradient = ctx.createLinearGradient(posX, posY, posX + CELL_SIZE, posY + CELL_SIZE);
+          const wallGradient = ctx.createLinearGradient(posX, posY, posX + WALL_THICKNESS, posY + WALL_THICKNESS);
           wallGradient.addColorStop(0, "#b8a8ff");
           wallGradient.addColorStop(0.5, "#9a8aef");
           wallGradient.addColorStop(1, "#7a6adf");
           ctx.fillStyle = wallGradient;
-          ctx.fillRect(posX, posY, CELL_SIZE, CELL_SIZE);
+          ctx.fillRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS);
           
           // Glossy highlight
           ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
-          ctx.fillRect(posX, posY, CELL_SIZE, CELL_SIZE / 3);
+          ctx.fillRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS / 3);
           
           // Chrome edge
           ctx.strokeStyle = "#d0c0ff";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(posX, posY, CELL_SIZE, CELL_SIZE);
+          ctx.lineWidth = 1;
+          ctx.strokeRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS);
         }
       }
     }
