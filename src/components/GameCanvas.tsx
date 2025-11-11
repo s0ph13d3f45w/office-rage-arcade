@@ -26,11 +26,13 @@ interface Collectible {
 const CELL_SIZE = 40;
 const MAZE_WIDTH = 20;
 const MAZE_HEIGHT = 16;
-const VISION_DISTANCE = 4;
+const VISION_DISTANCE = 3; // Reduced vision range
 const SPEED_BOOST_DURATION = 180; // 3 seconds at 60fps
 const SCARED_DURATION = 180; // 3 seconds at 60fps
 const PLAYER_SPEED = 0.15; // Much slower movement
-const EXECUTIVE_BASE_SPEED = 0.08; // Much slower executives
+const EXECUTIVE_BASE_SPEED = 0.05; // Much slower executives
+const INVINCIBILITY_DURATION = 120; // 2 seconds at 60fps
+const CATCH_COOLDOWN = 30; // 0.5 seconds at 60fps
 
 export const GameCanvas = ({
   gameState,
@@ -42,15 +44,17 @@ export const GameCanvas = ({
   loseLife: () => void;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [player, setPlayer] = useState<Position>({ x: 1, y: 1 });
+  const [player, setPlayer] = useState<Position>({ x: 10, y: 8 }); // Start in center
   const [playerDirection, setPlayerDirection] = useState<Position>({ x: 0, y: 0 });
   const [speedBoost, setSpeedBoost] = useState(0);
+  const [invincibilityTimer, setInvincibilityTimer] = useState(0);
+  const [catchCooldown, setCatchCooldown] = useState(0);
   const keysPressed = useRef<Set<string>>(new Set());
   
   const [executives, setExecutives] = useState<Executive[]>([
     {
-      position: { x: 18, y: 1 },
-      direction: { x: -1, y: 0 },
+      position: { x: 2, y: 2 },
+      direction: { x: 1, y: 0 },
       isScared: false,
       scaredTimer: 0,
       color: "#FF1493",
@@ -59,8 +63,8 @@ export const GameCanvas = ({
       scaredSpeech: "We need training!",
     },
     {
-      position: { x: 1, y: 14 },
-      direction: { x: 1, y: 0 },
+      position: { x: 17, y: 2 },
+      direction: { x: 0, y: 1 },
       isScared: false,
       scaredTimer: 0,
       color: "#FFD700",
@@ -69,7 +73,7 @@ export const GameCanvas = ({
       scaredSpeech: "Everything better!",
     },
     {
-      position: { x: 18, y: 14 },
+      position: { x: 2, y: 13 },
       direction: { x: 0, y: -1 },
       isScared: false,
       scaredTimer: 0,
@@ -79,8 +83,8 @@ export const GameCanvas = ({
       scaredSpeech: "Diversity workshop!",
     },
     {
-      position: { x: 10, y: 8 },
-      direction: { x: 1, y: 0 },
+      position: { x: 17, y: 13 },
+      direction: { x: -1, y: 0 },
       isScared: false,
       scaredTimer: 0,
       color: "#00FFFF",
@@ -322,6 +326,16 @@ export const GameCanvas = ({
         setSpeedBoost((prev) => prev - 1);
       }
 
+      // Update invincibility timer
+      if (invincibilityTimer > 0) {
+        setInvincibilityTimer((prev) => prev - 1);
+      }
+
+      // Update catch cooldown
+      if (catchCooldown > 0) {
+        setCatchCooldown((prev) => prev - 1);
+      }
+
       // Update executives
       setExecutives((prev) =>
         prev.map((exec) => {
@@ -344,11 +358,11 @@ export const GameCanvas = ({
           }
 
           // Normal AI movement with vision cone
-          const baseSpeed = EXECUTIVE_BASE_SPEED + gameState.level * 0.02;
+          const baseSpeed = EXECUTIVE_BASE_SPEED + gameState.level * 0.01; // Reduced level scaling
           
           if (Math.random() < baseSpeed) {
-            // Simple AI: occasionally change direction
-            if (Math.random() < 0.05) {
+            // Less erratic movement
+            if (Math.random() < 0.02) {
               const directions = [
                 { x: 1, y: 0 },
                 { x: -1, y: 0 },
@@ -374,16 +388,24 @@ export const GameCanvas = ({
                 position: { x: newX, y: newY },
               };
             } else {
-              // Hit wall, change direction
-              const directions = [
-                { x: 1, y: 0 },
-                { x: -1, y: 0 },
-                { x: 0, y: 1 },
-                { x: 0, y: -1 },
-              ];
+              // Hit wall - try to navigate around it smartly
+              const perpDirections = exec.direction.x !== 0 
+                ? [{ x: 0, y: 1 }, { x: 0, y: -1 }] 
+                : [{ x: 1, y: 0 }, { x: -1, y: 0 }];
+              
+              // Try perpendicular directions first
+              for (const dir of perpDirections) {
+                const testX = Math.floor(exec.position.x + dir.x);
+                const testY = Math.floor(exec.position.y + dir.y);
+                if (testX >= 0 && testX < MAZE_WIDTH && testY >= 0 && testY < MAZE_HEIGHT && !maze[testY][testX]) {
+                  return { ...exec, direction: dir };
+                }
+              }
+              
+              // If blocked on all sides, try opposite direction
               return {
                 ...exec,
-                direction: directions[Math.floor(Math.random() * directions.length)],
+                direction: { x: -exec.direction.x, y: -exec.direction.y },
               };
             }
           }
@@ -392,30 +414,110 @@ export const GameCanvas = ({
         })
       );
 
-      // Check collisions with executives
-      executives.forEach((exec) => {
-        if (exec.isScared) return;
+      // Check collisions with executives (only if not invincible and cooldown is 0)
+      if (invincibilityTimer === 0 && catchCooldown === 0) {
+        executives.forEach((exec) => {
+          if (exec.isScared) return;
 
-        // Vision cone detection
-        const inVisionCone =
-          Math.abs(exec.position.x - player.x) <= VISION_DISTANCE &&
-          Math.abs(exec.position.y - player.y) <= VISION_DISTANCE &&
-          ((exec.direction.x > 0 && player.x > exec.position.x) ||
-            (exec.direction.x < 0 && player.x < exec.position.x) ||
-            (exec.direction.y > 0 && player.y > exec.position.y) ||
-            (exec.direction.y < 0 && player.y < exec.position.y));
+          const dx = player.x - exec.position.x;
+          const dy = player.y - exec.position.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (inVisionCone) {
-          loseLife();
-          playSound("caught");
-          // Reset player position
-          setPlayer({ x: 1, y: 1 });
-        }
-      });
+          // Blind spot: can't see if too close
+          if (distance < 1) return;
+
+          // Check if in vision range
+          if (distance > VISION_DISTANCE) return;
+
+          // Calculate angle between executive direction and player
+          const angleToPlayer = Math.atan2(dy, dx);
+          const execAngle = Math.atan2(exec.direction.y, exec.direction.x);
+          let angleDiff = angleToPlayer - execAngle;
+
+          // Normalize angle difference to -PI to PI
+          while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+          while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+          // Narrower vision cone (30 degrees on each side = 60 degrees total)
+          const coneAngle = Math.PI / 6;
+          if (Math.abs(angleDiff) > coneAngle) return;
+
+          // Line-of-sight check: trace path to player
+          const steps = Math.ceil(distance);
+          let lineOfSight = true;
+          for (let i = 1; i <= steps; i++) {
+            const checkX = Math.floor(exec.position.x + (dx / distance) * i);
+            const checkY = Math.floor(exec.position.y + (dy / distance) * i);
+            if (checkX >= 0 && checkX < MAZE_WIDTH && checkY >= 0 && checkY < MAZE_HEIGHT) {
+              if (maze[checkY][checkX]) {
+                lineOfSight = false;
+                break;
+              }
+            }
+          }
+
+          if (lineOfSight) {
+            loseLife();
+            playSound("caught");
+            setCatchCooldown(CATCH_COOLDOWN);
+            setInvincibilityTimer(INVINCIBILITY_DURATION);
+            
+            // Smart respawn: find safe location
+            const findSafeSpawn = () => {
+              const attempts = 50;
+              for (let i = 0; i < attempts; i++) {
+                const x = 2 + Math.floor(Math.random() * (MAZE_WIDTH - 4));
+                const y = 2 + Math.floor(Math.random() * (MAZE_HEIGHT - 4));
+                
+                // Check if walkable
+                if (maze[y][x]) continue;
+                
+                // Check distance from all executives
+                let safe = true;
+                for (const e of executives) {
+                  const dist = Math.sqrt((e.position.x - x) ** 2 + (e.position.y - y) ** 2);
+                  if (dist < 6) {
+                    safe = false;
+                    break;
+                  }
+                }
+                
+                if (safe) return { x, y };
+              }
+              
+              // Fallback: spawn in farthest corner from all executives
+              const corners = [
+                { x: 2, y: 2 },
+                { x: MAZE_WIDTH - 3, y: 2 },
+                { x: 2, y: MAZE_HEIGHT - 3 },
+                { x: MAZE_WIDTH - 3, y: MAZE_HEIGHT - 3 },
+              ];
+              
+              let farthest = corners[0];
+              let maxDist = 0;
+              
+              for (const corner of corners) {
+                let totalDist = 0;
+                for (const e of executives) {
+                  totalDist += Math.sqrt((e.position.x - corner.x) ** 2 + (e.position.y - corner.y) ** 2);
+                }
+                if (totalDist > maxDist) {
+                  maxDist = totalDist;
+                  farthest = corner;
+                }
+              }
+              
+              return farthest;
+            };
+            
+            setPlayer(findSafeSpawn());
+          }
+        });
+      }
     }, 1000 / 60); // 60 FPS
 
     return () => clearInterval(gameLoop);
-  }, [gameState, player, executives, speedBoost]);
+  }, [gameState, player, executives, speedBoost, invincibilityTimer, catchCooldown]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -632,7 +734,7 @@ export const GameCanvas = ({
         ctx.moveTo(startX, startY);
 
         const angle = Math.atan2(exec.direction.y, exec.direction.x);
-        const coneAngle = Math.PI / 4;
+        const coneAngle = Math.PI / 6; // Narrower 30-degree cone
         const coneLength = VISION_DISTANCE * CELL_SIZE;
 
         ctx.lineTo(
@@ -759,6 +861,15 @@ export const GameCanvas = ({
       player.y * CELL_SIZE + CELL_SIZE / 2
     );
 
+    // Invincibility effect - flashing
+    if (invincibilityTimer > 0) {
+      if (Math.floor(invincibilityTimer / 10) % 2 === 0) {
+        ctx.globalAlpha = 0.5;
+      }
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = "#00ffff";
+    }
+
     // Head
     ctx.fillStyle = "#f0c674";
     ctx.beginPath();
@@ -838,8 +949,10 @@ export const GameCanvas = ({
     ctx.arc(12, 16, 3, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
     ctx.restore();
-  }, [player, executives, collectibles, speedBoost]);
+  }, [player, executives, collectibles, speedBoost, invincibilityTimer]);
 
   return (
     <canvas
