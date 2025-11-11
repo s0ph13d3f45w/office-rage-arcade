@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { GameState } from "./Game";
 import playerSprite from "@/assets/player-sprite.png";
 import executiveSprite from "@/assets/executive-sprite.png";
@@ -282,54 +282,7 @@ export const GameCanvas = ({
     return items;
   });
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      keysPressed.current.add(e.key.toLowerCase());
-      
-      if (e.key === "p" || e.key === "P") {
-        handleAction();
-      }
-      
-      if (e.key === " ") {
-        e.preventDefault();
-        // Emergency HR call - could clear executives briefly
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      keysPressed.current.delete(e.key.toLowerCase());
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, [player, collectibles, executives]);
-
-  // Ensure player starts on a walkable tile (avoid spawning inside walls)
-  useEffect(() => {
-    const gx = Math.floor(player.x);
-    const gy = Math.floor(player.y);
-    if (maze[gy]?.[gx]) {
-      const cx = Math.floor(MAZE_WIDTH / 2);
-      const cy = Math.floor(MAZE_HEIGHT / 2);
-      outer: for (let r = 0; r < Math.max(MAZE_WIDTH, MAZE_HEIGHT); r++) {
-        for (let y = cy - r; y <= cy + r; y++) {
-          for (let x = cx - r; x <= cx + r; x++) {
-            if (x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x]) {
-              setPlayer({ x, y });
-              break outer;
-            }
-          }
-        }
-      }
-    }
-  }, []);
-
-const handleAction = () => {
+  const handleAction = useCallback(() => {
     // Check for nearby collectibles (damage/modify instead of destroy -> spawn a coin)
     const nearby = collectibles.find(
       (c) =>
@@ -394,7 +347,54 @@ const handleAction = () => {
         return exec;
       })
     );
-  };
+  }, [collectibles, player]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysPressed.current.add(e.key.toLowerCase());
+      
+      if (e.key === "p" || e.key === "P") {
+        handleAction();
+      }
+      
+      if (e.key === " ") {
+        e.preventDefault();
+        // Emergency HR call - could clear executives briefly
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysPressed.current.delete(e.key.toLowerCase());
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [handleAction]);
+
+  // Ensure player starts on a walkable tile (avoid spawning inside walls)
+  useEffect(() => {
+    const gx = Math.floor(player.x);
+    const gy = Math.floor(player.y);
+    if (maze[gy]?.[gx]) {
+      const cx = Math.floor(MAZE_WIDTH / 2);
+      const cy = Math.floor(MAZE_HEIGHT / 2);
+      outer: for (let r = 0; r < Math.max(MAZE_WIDTH, MAZE_HEIGHT); r++) {
+        for (let y = cy - r; y <= cy + r; y++) {
+          for (let x = cx - r; x <= cx + r; x++) {
+            if (x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x]) {
+              setPlayer({ x, y });
+              break outer;
+            }
+          }
+        }
+      }
+    }
+  }, []);
 
   const playSound = (type: string) => {
     // Placeholder for sound effects
