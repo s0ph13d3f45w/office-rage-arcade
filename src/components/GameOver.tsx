@@ -9,12 +9,12 @@ export const GameOver = ({ score, onRestart }: GameOverProps) => {
   return (
     <div className="absolute inset-0 backdrop-blur-md bg-background/80 flex items-center justify-center">
       <div className="text-center space-y-6 p-8 border-4 border-primary rounded-3xl bg-card glossy shadow-[0_8px_60px_rgba(255,105,180,0.6)]">
-        <h2 className="text-4xl font-bold text-primary holographic bg-clip-text text-transparent animate-pulse">
+        <h2 className="text-4xl font-bold text-primary text-shadow-neon animate-pulse">
           YOU'RE FIRED!
         </h2>
         <div className="space-y-2">
-          <p className="text-xl text-y2k-cyan text-shadow-chrome font-bold">Final Workplace Damage:</p>
-          <p className="text-5xl font-bold text-y2k-bubblegum text-shadow-chrome">{score}</p>
+          <p className="text-xl text-arcade-cyan text-shadow-neon font-bold">Final Workplace Damage:</p>
+          <p className="text-5xl font-bold text-arcade-pink text-shadow-neon">{score}</p>
         </div>
         <div className="space-y-2 text-muted-foreground text-sm font-medium">
           <p className="italic">"Women are ruining the workplace!"</p>

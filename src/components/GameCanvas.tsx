@@ -801,15 +801,20 @@ const handleAction = () => {
       const img = exec.isScared ? sprites.executiveScared : sprites.executive;
       if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
 
-      // Speech bubble
+      // Speech bubble with neon arcade style
       if (!exec.isScared) {
         ctx.save();
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        // Dark background with neon border
+        ctx.fillStyle = "rgba(10, 10, 26, 0.95)";
         ctx.fillRect(posX - 20, posY - 35, 80, 20);
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = exec.color;
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = exec.color;
         ctx.strokeRect(posX - 20, posY - 35, 80, 20);
-        ctx.fillStyle = "#000";
+        ctx.shadowBlur = 0;
+        // Neon text
+        ctx.fillStyle = exec.color;
         ctx.font = "8px 'Press Start 2P'";
         ctx.textAlign = "center";
         ctx.fillText(exec.speech, posX + 20, posY - 22);
