@@ -19,8 +19,9 @@ interface Executive {
 
 interface Collectible {
   position: Position;
-  type: "computer" | "wall" | "coworker" | "coffee";
+  type: "computer" | "wall" | "coworker" | "coffee" | "coin";
   collected: boolean;
+  value?: number;
 }
 
 const CELL_SIZE = 40;
@@ -237,8 +238,8 @@ export const GameCanvas = ({
     };
   }, [player, collectibles, executives]);
 
-  const handleAction = () => {
-    // Check for nearby collectibles
+const handleAction = () => {
+    // Check for nearby collectibles (destroy instead of collect -> spawn a coin)
     const nearby = collectibles.find(
       (c) =>
         !c.collected &&
@@ -247,25 +248,39 @@ export const GameCanvas = ({
     );
 
     if (nearby) {
+      let coinValue = 5;
+      let sound: string | null = null;
+
       if (nearby.type === "computer") {
-        updateScore(8);
-        playSound("destroy");
+        coinValue = 8;
+        sound = "destroy";
       } else if (nearby.type === "wall") {
-        updateScore(5);
-        playSound("graffiti");
+        coinValue = 5;
+        sound = "graffiti";
       } else if (nearby.type === "coworker") {
-        updateScore(10);
-        playSound("cake");
+        coinValue = 10;
+        sound = "cake";
       } else if (nearby.type === "coffee") {
+        // Power-up still applies, plus coin appears
         setSpeedBoost(SPEED_BOOST_DURATION);
-        playSound("powerup");
+        sound = "powerup";
       }
 
-      setCollectibles((prev) =>
-        prev.map((c) =>
-          c === nearby ? { ...c, collected: true } : c
-        )
-      );
+      if (sound) playSound(sound);
+
+      // Remove the item and spawn a coin at its position
+      setCollectibles((prev) => {
+        const updated = prev.map((c) => (c === nearby ? { ...c, collected: true } : c));
+        return [
+          ...updated,
+          {
+            position: { ...nearby.position },
+            type: "coin" as const,
+            collected: false,
+            value: coinValue,
+          },
+        ];
+      });
     }
 
     // Check for nearby executives to put kick-me sign
@@ -306,17 +321,29 @@ export const GameCanvas = ({
       if (dx !== 0 || dy !== 0) {
         setPlayerDirection({ x: dx, y: dy });
         setPlayer((prev) => {
-          const newX = Math.max(0, Math.min(MAZE_WIDTH - 1, prev.x + dx));
-          const newY = Math.max(0, Math.min(MAZE_HEIGHT - 1, prev.y + dy));
-          
-          // Check wall collision
-          const gridX = Math.floor(newX);
-          const gridY = Math.floor(newY);
-          
-          if (maze[gridY] && maze[gridY][gridX]) {
-            return prev; // Hit a wall, don't move
+          let newX = prev.x;
+          let newY = prev.y;
+
+          // Attempt horizontal move first
+          if (dx !== 0) {
+            const attemptedX = Math.max(0, Math.min(MAZE_WIDTH - 1, prev.x + dx));
+            const gridX = Math.floor(attemptedX);
+            const gridY = Math.floor(prev.y);
+            if (!maze[gridY] || !maze[gridY][gridX]) {
+              if (!(maze[gridY] && maze[gridY][gridX])) newX = attemptedX;
+            }
           }
-          
+
+          // Then vertical move
+          if (dy !== 0) {
+            const attemptedY = Math.max(0, Math.min(MAZE_HEIGHT - 1, prev.y + dy));
+            const gridX = Math.floor(newX);
+            const gridY = Math.floor(attemptedY);
+            if (!maze[gridY] || !maze[gridY][gridX]) {
+              if (!(maze[gridY] && maze[gridY][gridX])) newY = attemptedY;
+            }
+          }
+
           return { x: newX, y: newY };
         });
       }
@@ -411,6 +438,20 @@ export const GameCanvas = ({
           }
 
           return exec;
+        })
+      );
+
+      // Collect coins by walking over them
+      const playerGX = Math.floor(player.x);
+      const playerGY = Math.floor(player.y);
+      setCollectibles((prev) =>
+        prev.map((c) => {
+          if (c.type === "coin" && !c.collected && c.position.x === playerGX && c.position.y === playerGY) {
+            updateScore(c.value ?? 5);
+            playSound("coin");
+            return { ...c, collected: true };
+          }
+          return c;
         })
       );
 
@@ -716,6 +757,24 @@ export const GameCanvas = ({
         ctx.moveTo(1, 6);
         ctx.bezierCurveTo(2, 2, 0, 0, -1, -2);
         ctx.stroke();
+      } else if (c.type === "coin") {
+        // Shiny Y2K coin
+        const coinGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, 12);
+        coinGrad.addColorStop(0, "#fff7b3");
+        coinGrad.addColorStop(0.6, "#ffe066");
+        coinGrad.addColorStop(1, "#ffc107");
+        ctx.fillStyle = coinGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        ctx.fill();
+        // Sparkle
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.beginPath();
+        ctx.moveTo(-2, -4);
+        ctx.lineTo(0, -8);
+        ctx.lineTo(2, -4);
+        ctx.closePath();
+        ctx.fill();
       }
 
       ctx.restore();
