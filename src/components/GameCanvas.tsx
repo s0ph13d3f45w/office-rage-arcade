@@ -417,35 +417,48 @@ const handleAction = () => {
 
       if (dx !== 0 || dy !== 0) {
         setPlayerDirection({ x: dx, y: dy });
-          setPlayer((prev) => {
-            const isOpen = (x: number, y: number) =>
-              x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x];
+        setPlayer((prev) => {
+          const PLAYER_RADIUS = 0.3; // Player collision box radius
+          
+          // Helper to check if a position is valid (not in a wall)
+          const isWalkable = (x: number, y: number) => {
+            const gridX = Math.floor(x);
+            const gridY = Math.floor(y);
+            return gridX >= 0 && gridX < MAZE_WIDTH && 
+                   gridY >= 0 && gridY < MAZE_HEIGHT && 
+                   !maze[gridY][gridX];
+          };
+          
+          // Check if all corners of the player's collision box are walkable
+          const canMoveTo = (x: number, y: number) => {
+            // Check four corners of the collision box
+            return isWalkable(x - PLAYER_RADIUS, y - PLAYER_RADIUS) &&
+                   isWalkable(x + PLAYER_RADIUS, y - PLAYER_RADIUS) &&
+                   isWalkable(x - PLAYER_RADIUS, y + PLAYER_RADIUS) &&
+                   isWalkable(x + PLAYER_RADIUS, y + PLAYER_RADIUS);
+          };
 
-            let nx = prev.x;
-            let ny = prev.y;
+          let newX = prev.x;
+          let newY = prev.y;
 
-            // Attempt horizontal move first with solid wall collision
-            if (dx !== 0) {
-              const tx = prev.x + dx;
-              const gx = Math.floor(tx);
-              const gy = Math.floor(prev.y);
-              if (isOpen(gx, gy)) {
-                nx = Math.min(MAZE_WIDTH - 0.001, Math.max(0, tx));
-              }
+          // Try horizontal movement
+          if (dx !== 0) {
+            const testX = prev.x + dx;
+            if (testX >= PLAYER_RADIUS && testX < MAZE_WIDTH - PLAYER_RADIUS && canMoveTo(testX, prev.y)) {
+              newX = testX;
             }
+          }
 
-            // Then vertical move with solid wall collision
-            if (dy !== 0) {
-              const ty = prev.y + dy;
-              const gx = Math.floor(nx);
-              const gy = Math.floor(ty);
-              if (isOpen(gx, gy)) {
-                ny = Math.min(MAZE_HEIGHT - 0.001, Math.max(0, ty));
-              }
+          // Try vertical movement
+          if (dy !== 0) {
+            const testY = prev.y + dy;
+            if (testY >= PLAYER_RADIUS && testY < MAZE_HEIGHT - PLAYER_RADIUS && canMoveTo(newX, testY)) {
+              newY = testY;
             }
+          }
 
-            return { x: nx, y: ny };
-          });
+          return { x: newX, y: newY };
+        });
       }
 
       // Update speed boost
