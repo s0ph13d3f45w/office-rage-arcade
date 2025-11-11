@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { GameState } from "./Game";
-import playerSprite from "@/assets/player-sprite.png";
-import executiveSprite from "@/assets/executive-sprite.png";
-import executiveScaredSprite from "@/assets/executive-scared-sprite.png";
-import computerSprite from "@/assets/computer-sprite.png";
-import computerDamagedSprite from "@/assets/computer-damaged-sprite.png";
-import whiteboardSprite from "@/assets/whiteboard-sprite.png";
-import whiteboardPaintedSprite from "@/assets/whiteboard-painted-sprite.png";
-import coworkerSprite from "@/assets/coworker-sprite.png";
-import coworkerPiedSprite from "@/assets/coworker-pied-sprite.png";
 import coffeeSprite from "@/assets/coffee-sprite.png";
 import coinSprite from "@/assets/coin-sprite.png";
+import computerDamagedSprite from "@/assets/computer-damaged-sprite.png";
+import computerSprite from "@/assets/computer-sprite.png";
+import coworkerPiedSprite from "@/assets/coworker-pied-sprite.png";
+import coworkerSprite from "@/assets/coworker-sprite.png";
+import executiveScaredSprite from "@/assets/executive-scared-sprite.png";
+import executiveSprite from "@/assets/executive-sprite.png";
+import playerSprite from "@/assets/player-sprite.png";
+import whiteboardPaintedSprite from "@/assets/whiteboard-painted-sprite.png";
+import whiteboardSprite from "@/assets/whiteboard-sprite.png";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { GameState } from "./Game";
 
 interface Position {
   x: number;
@@ -58,15 +58,18 @@ export const GameCanvas = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [player, setPlayer] = useState<Position>({ x: 10, y: 8 }); // Start in center
-  const [playerDirection, setPlayerDirection] = useState<Position>({ x: 0, y: 0 });
+  const [playerDirection, setPlayerDirection] = useState<Position>({
+    x: 0,
+    y: 0,
+  });
   const [speedBoost, setSpeedBoost] = useState(0);
   const [invincibilityTimer, setInvincibilityTimer] = useState(0);
   const [catchCooldown, setCatchCooldown] = useState(0);
   const keysPressed = useRef<Set<string>>(new Set());
-  
+
   // Preload all sprite images
   const [sprites, setSprites] = useState<Record<string, HTMLImageElement>>({});
-  
+
   useEffect(() => {
     const loadSprites = async () => {
       const spriteMap: Record<string, HTMLImageElement> = {};
@@ -122,7 +125,7 @@ export const GameCanvas = ({
 
     loadSprites();
   }, []);
-  
+
   const [executives, setExecutives] = useState<Executive[]>([
     {
       position: { x: 2, y: 2 },
@@ -168,8 +171,10 @@ export const GameCanvas = ({
 
   // Maze walls
   const [maze] = useState<boolean[][]>(() => {
-    const m = Array(MAZE_HEIGHT).fill(0).map(() => Array(MAZE_WIDTH).fill(false));
-    
+    const m = Array(MAZE_HEIGHT)
+      .fill(0)
+      .map(() => Array(MAZE_WIDTH).fill(false));
+
     // Outer walls
     for (let x = 0; x < MAZE_WIDTH; x++) {
       m[0][x] = true;
@@ -179,7 +184,7 @@ export const GameCanvas = ({
       m[y][0] = true;
       m[y][MAZE_WIDTH - 1] = true;
     }
-    
+
     // Internal maze walls
     // Vertical walls
     for (let y = 2; y < MAZE_HEIGHT - 2; y += 3) {
@@ -188,7 +193,7 @@ export const GameCanvas = ({
         if (Math.random() > 0.3) m[y + 1][x] = true;
       }
     }
-    
+
     // Horizontal walls
     for (let x = 2; x < MAZE_WIDTH - 2; x += 3) {
       for (let y = 4; y < MAZE_HEIGHT - 4; y += 4) {
@@ -196,7 +201,7 @@ export const GameCanvas = ({
         if (Math.random() > 0.3) m[y][x + 1] = true;
       }
     }
-    
+
     // Add some room-like structures
     const rooms = [
       { x: 5, y: 5, w: 3, h: 3 },
@@ -204,8 +209,8 @@ export const GameCanvas = ({
       { x: 3, y: 10, w: 3, h: 4 },
       { x: 14, y: 10, w: 4, h: 4 },
     ];
-    
-    rooms.forEach(room => {
+
+    rooms.forEach((room) => {
       for (let x = room.x; x < room.x + room.w; x++) {
         m[room.y][x] = true;
         m[room.y + room.h - 1][x] = true;
@@ -217,16 +222,18 @@ export const GameCanvas = ({
       // Add door
       m[room.y + Math.floor(room.h / 2)][room.x] = false;
     });
-    
+
     return m;
   });
 
   const [collectibles, setCollectibles] = useState<Collectible[]>(() => {
     const items: Collectible[] = [];
     const isWalkable = (x: number, y: number) => {
-      return x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x];
+      return (
+        x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x]
+      );
     };
-    
+
     // Add computers
     for (let i = 0; i < 12; i++) {
       let x, y;
@@ -234,14 +241,14 @@ export const GameCanvas = ({
         x = 2 + Math.floor(Math.random() * (MAZE_WIDTH - 4));
         y = 2 + Math.floor(Math.random() * (MAZE_HEIGHT - 4));
       } while (!isWalkable(x, y));
-      
+
       items.push({
         position: { x, y },
         type: "computer",
         collected: false,
       });
     }
-    
+
     // Add walls
     for (let i = 0; i < 8; i++) {
       let x, y;
@@ -249,14 +256,14 @@ export const GameCanvas = ({
         x = 2 + Math.floor(Math.random() * (MAZE_WIDTH - 4));
         y = 2 + Math.floor(Math.random() * (MAZE_HEIGHT - 4));
       } while (!isWalkable(x, y));
-      
+
       items.push({
         position: { x, y },
         type: "wall",
         collected: false,
       });
     }
-    
+
     // Add coworkers
     for (let i = 0; i < 6; i++) {
       let x, y;
@@ -264,21 +271,21 @@ export const GameCanvas = ({
         x = 2 + Math.floor(Math.random() * (MAZE_WIDTH - 4));
         y = 2 + Math.floor(Math.random() * (MAZE_HEIGHT - 4));
       } while (!isWalkable(x, y));
-      
+
       items.push({
         position: { x, y },
         type: "coworker",
         collected: false,
       });
     }
-    
+
     // Add coffee machines
     items.push({
       position: { x: 10, y: 3 },
       type: "coffee",
       collected: false,
     });
-    
+
     return items;
   });
 
@@ -320,7 +327,9 @@ export const GameCanvas = ({
 
       // Damage the item (keep it visible but modified) and spawn a coin
       setCollectibles((prev) => {
-        const updated = prev.map((c) => (c === nearby ? { ...c, damaged: true } : c));
+        const updated = prev.map((c) =>
+          c === nearby ? { ...c, damaged: true } : c
+        );
         return [
           ...updated,
           {
@@ -352,11 +361,11 @@ export const GameCanvas = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keysPressed.current.add(e.key.toLowerCase());
-      
+
       if (e.key === "p" || e.key === "P") {
         handleAction();
       }
-      
+
       if (e.key === " ") {
         e.preventDefault();
         // Emergency HR call - could clear executives briefly
@@ -386,7 +395,13 @@ export const GameCanvas = ({
       outer: for (let r = 0; r < Math.max(MAZE_WIDTH, MAZE_HEIGHT); r++) {
         for (let y = cy - r; y <= cy + r; y++) {
           for (let x = cx - r; x <= cx + r; x++) {
-            if (x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x]) {
+            if (
+              x >= 0 &&
+              x < MAZE_WIDTH &&
+              y >= 0 &&
+              y < MAZE_HEIGHT &&
+              !maze[y][x]
+            ) {
               setPlayer({ x, y });
               break outer;
             }
@@ -419,23 +434,29 @@ export const GameCanvas = ({
         setPlayerDirection({ x: dx, y: dy });
         setPlayer((prev) => {
           const PLAYER_RADIUS = 0.3; // Player collision box radius
-          
+
           // Helper to check if a position is valid (not in a wall)
           const isWalkable = (x: number, y: number) => {
             const gridX = Math.floor(x);
             const gridY = Math.floor(y);
-            return gridX >= 0 && gridX < MAZE_WIDTH && 
-                   gridY >= 0 && gridY < MAZE_HEIGHT && 
-                   !maze[gridY][gridX];
+            return (
+              gridX >= 0 &&
+              gridX < MAZE_WIDTH &&
+              gridY >= 0 &&
+              gridY < MAZE_HEIGHT &&
+              !maze[gridY][gridX]
+            );
           };
-          
+
           // Check if all corners of the player's collision box are walkable
           const canMoveTo = (x: number, y: number) => {
             // Check four corners of the collision box
-            return isWalkable(x - PLAYER_RADIUS, y - PLAYER_RADIUS) &&
-                   isWalkable(x + PLAYER_RADIUS, y - PLAYER_RADIUS) &&
-                   isWalkable(x - PLAYER_RADIUS, y + PLAYER_RADIUS) &&
-                   isWalkable(x + PLAYER_RADIUS, y + PLAYER_RADIUS);
+            return (
+              isWalkable(x - PLAYER_RADIUS, y - PLAYER_RADIUS) &&
+              isWalkable(x + PLAYER_RADIUS, y - PLAYER_RADIUS) &&
+              isWalkable(x - PLAYER_RADIUS, y + PLAYER_RADIUS) &&
+              isWalkable(x + PLAYER_RADIUS, y + PLAYER_RADIUS)
+            );
           };
 
           let newX = prev.x;
@@ -444,7 +465,11 @@ export const GameCanvas = ({
           // Try horizontal movement
           if (dx !== 0) {
             const testX = prev.x + dx;
-            if (testX >= PLAYER_RADIUS && testX < MAZE_WIDTH - PLAYER_RADIUS && canMoveTo(testX, prev.y)) {
+            if (
+              testX >= PLAYER_RADIUS &&
+              testX < MAZE_WIDTH - PLAYER_RADIUS &&
+              canMoveTo(testX, prev.y)
+            ) {
               newX = testX;
             }
           }
@@ -452,7 +477,11 @@ export const GameCanvas = ({
           // Try vertical movement
           if (dy !== 0) {
             const testY = prev.y + dy;
-            if (testY >= PLAYER_RADIUS && testY < MAZE_HEIGHT - PLAYER_RADIUS && canMoveTo(newX, testY)) {
+            if (
+              testY >= PLAYER_RADIUS &&
+              testY < MAZE_HEIGHT - PLAYER_RADIUS &&
+              canMoveTo(newX, testY)
+            ) {
               newY = testY;
             }
           }
@@ -489,8 +518,14 @@ export const GameCanvas = ({
             return {
               ...exec,
               position: {
-                x: Math.max(0, Math.min(MAZE_WIDTH - 1, exec.position.x + moveX)),
-                y: Math.max(0, Math.min(MAZE_HEIGHT - 1, exec.position.y + moveY)),
+                x: Math.max(
+                  0,
+                  Math.min(MAZE_WIDTH - 1, exec.position.x + moveX)
+                ),
+                y: Math.max(
+                  0,
+                  Math.min(MAZE_HEIGHT - 1, exec.position.y + moveY)
+                ),
               },
               scaredTimer: exec.scaredTimer - 1,
               isScared: exec.scaredTimer - 1 > 0,
@@ -499,7 +534,7 @@ export const GameCanvas = ({
 
           // Normal AI movement with vision cone
           const baseSpeed = EXECUTIVE_BASE_SPEED + gameState.level * 0.01; // Reduced level scaling
-          
+
           if (Math.random() < baseSpeed) {
             // Less erratic movement
             if (Math.random() < 0.02) {
@@ -509,18 +544,21 @@ export const GameCanvas = ({
                 { x: 0, y: 1 },
                 { x: 0, y: -1 },
               ];
-              exec.direction = directions[Math.floor(Math.random() * directions.length)];
+              exec.direction =
+                directions[Math.floor(Math.random() * directions.length)];
             }
 
             const newX = exec.position.x + exec.direction.x * 0.5;
             const newY = exec.position.y + exec.direction.y * 0.5;
-            
+
             const gridX = Math.floor(newX);
             const gridY = Math.floor(newY);
 
             if (
-              newX >= 0 && newX < MAZE_WIDTH && 
-              newY >= 0 && newY < MAZE_HEIGHT &&
+              newX >= 0 &&
+              newX < MAZE_WIDTH &&
+              newY >= 0 &&
+              newY < MAZE_HEIGHT &&
               !maze[gridY][gridX]
             ) {
               return {
@@ -529,19 +567,32 @@ export const GameCanvas = ({
               };
             } else {
               // Hit wall - try to navigate around it smartly
-              const perpDirections = exec.direction.x !== 0 
-                ? [{ x: 0, y: 1 }, { x: 0, y: -1 }] 
-                : [{ x: 1, y: 0 }, { x: -1, y: 0 }];
-              
+              const perpDirections =
+                exec.direction.x !== 0
+                  ? [
+                      { x: 0, y: 1 },
+                      { x: 0, y: -1 },
+                    ]
+                  : [
+                      { x: 1, y: 0 },
+                      { x: -1, y: 0 },
+                    ];
+
               // Try perpendicular directions first
               for (const dir of perpDirections) {
                 const testX = Math.floor(exec.position.x + dir.x);
                 const testY = Math.floor(exec.position.y + dir.y);
-                if (testX >= 0 && testX < MAZE_WIDTH && testY >= 0 && testY < MAZE_HEIGHT && !maze[testY][testX]) {
+                if (
+                  testX >= 0 &&
+                  testX < MAZE_WIDTH &&
+                  testY >= 0 &&
+                  testY < MAZE_HEIGHT &&
+                  !maze[testY][testX]
+                ) {
                   return { ...exec, direction: dir };
                 }
               }
-              
+
               // If blocked on all sides, try opposite direction
               return {
                 ...exec,
@@ -559,7 +610,12 @@ export const GameCanvas = ({
       const playerGY = Math.floor(player.y);
       setCollectibles((prev) =>
         prev.map((c) => {
-          if (c.type === "coin" && !c.collected && c.position.x === playerGX && c.position.y === playerGY) {
+          if (
+            c.type === "coin" &&
+            !c.collected &&
+            c.position.x === playerGX &&
+            c.position.y === playerGY
+          ) {
             updateScore(c.value ?? 5);
             playSound("coin");
             return { ...c, collected: true };
@@ -602,7 +658,12 @@ export const GameCanvas = ({
           for (let i = 1; i <= steps; i++) {
             const checkX = Math.floor(exec.position.x + (dx / distance) * i);
             const checkY = Math.floor(exec.position.y + (dy / distance) * i);
-            if (checkX >= 0 && checkX < MAZE_WIDTH && checkY >= 0 && checkY < MAZE_HEIGHT) {
+            if (
+              checkX >= 0 &&
+              checkX < MAZE_WIDTH &&
+              checkY >= 0 &&
+              checkY < MAZE_HEIGHT
+            ) {
               if (maze[checkY][checkX]) {
                 lineOfSight = false;
                 break;
@@ -615,30 +676,32 @@ export const GameCanvas = ({
             playSound("caught");
             setCatchCooldown(CATCH_COOLDOWN);
             setInvincibilityTimer(INVINCIBILITY_DURATION);
-            
+
             // Smart respawn: find safe location
             const findSafeSpawn = () => {
               const attempts = 50;
               for (let i = 0; i < attempts; i++) {
                 const x = 2 + Math.floor(Math.random() * (MAZE_WIDTH - 4));
                 const y = 2 + Math.floor(Math.random() * (MAZE_HEIGHT - 4));
-                
+
                 // Check if walkable
                 if (maze[y][x]) continue;
-                
+
                 // Check distance from all executives
                 let safe = true;
                 for (const e of executives) {
-                  const dist = Math.sqrt((e.position.x - x) ** 2 + (e.position.y - y) ** 2);
+                  const dist = Math.sqrt(
+                    (e.position.x - x) ** 2 + (e.position.y - y) ** 2
+                  );
                   if (dist < 6) {
                     safe = false;
                     break;
                   }
                 }
-                
+
                 if (safe) return { x, y };
               }
-              
+
               // Fallback: spawn in farthest corner from all executives
               const corners = [
                 { x: 2, y: 2 },
@@ -646,24 +709,27 @@ export const GameCanvas = ({
                 { x: 2, y: MAZE_HEIGHT - 3 },
                 { x: MAZE_WIDTH - 3, y: MAZE_HEIGHT - 3 },
               ];
-              
+
               let farthest = corners[0];
               let maxDist = 0;
-              
+
               for (const corner of corners) {
                 let totalDist = 0;
                 for (const e of executives) {
-                  totalDist += Math.sqrt((e.position.x - corner.x) ** 2 + (e.position.y - corner.y) ** 2);
+                  totalDist += Math.sqrt(
+                    (e.position.x - corner.x) ** 2 +
+                      (e.position.y - corner.y) ** 2
+                  );
                 }
                 if (totalDist > maxDist) {
                   maxDist = totalDist;
                   farthest = corner;
                 }
               }
-              
+
               return farthest;
             };
-            
+
             setPlayer(findSafeSpawn());
           }
         });
@@ -671,7 +737,14 @@ export const GameCanvas = ({
     }, 1000 / 60); // 60 FPS
 
     return () => clearInterval(gameLoop);
-  }, [gameState, player, executives, speedBoost, invincibilityTimer, catchCooldown]);
+  }, [
+    gameState,
+    player,
+    executives,
+    speedBoost,
+    invincibilityTimer,
+    catchCooldown,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -683,7 +756,7 @@ export const GameCanvas = ({
     // Clear canvas with 1980s arcade dark background
     ctx.fillStyle = "#0a0a1a";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
+
     // Add grid effect for retro arcade feel
     ctx.strokeStyle = "rgba(255, 0, 255, 0.1)";
     ctx.lineWidth = 1;
@@ -703,30 +776,35 @@ export const GameCanvas = ({
     // Draw maze walls with neon 1980s effect (thinner walls)
     const WALL_THICKNESS = 8; // Thin walls
     const WALL_OFFSET = (CELL_SIZE - WALL_THICKNESS) / 2;
-    
+
     for (let y = 0; y < MAZE_HEIGHT; y++) {
       for (let x = 0; x < MAZE_WIDTH; x++) {
         if (maze[y][x]) {
           const posX = x * CELL_SIZE + WALL_OFFSET;
           const posY = y * CELL_SIZE + WALL_OFFSET;
-          
+
           // Neon wall with glow
           ctx.fillStyle = "#ff00ff";
           ctx.shadowBlur = 15;
           ctx.shadowColor = "#ff00ff";
           ctx.fillRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS);
-          
+
           // Inner glow
           ctx.fillStyle = "#ff66ff";
           ctx.shadowBlur = 5;
-          ctx.fillRect(posX + 1, posY + 1, WALL_THICKNESS - 2, WALL_THICKNESS - 2);
-          
+          ctx.fillRect(
+            posX + 1,
+            posY + 1,
+            WALL_THICKNESS - 2,
+            WALL_THICKNESS - 2
+          );
+
           // Reset shadow
           ctx.shadowBlur = 0;
         }
       }
     }
-    
+
     // Draw subtle neon grid on walkable spaces
     ctx.strokeStyle = "rgba(0, 255, 255, 0.15)";
     ctx.lineWidth = 1;
@@ -764,13 +842,26 @@ export const GameCanvas = ({
         const img = c.damaged ? sprites.coworkerPied : sprites.coworker;
         if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
       } else if (c.type === "coffee") {
-        if (sprites.coffee) ctx.drawImage(sprites.coffee, offsetX, offsetY, spriteSize, spriteSize);
+        if (sprites.coffee)
+          ctx.drawImage(
+            sprites.coffee,
+            offsetX,
+            offsetY,
+            spriteSize,
+            spriteSize
+          );
       } else if (c.type === "coin") {
         if (sprites.coin) {
           // Make coin slightly smaller and animated
           const coinSize = CELL_SIZE * 0.8;
           const coinOffset = (CELL_SIZE - coinSize) / 2;
-          ctx.drawImage(sprites.coin, posX + coinOffset, posY + coinOffset, coinSize, coinSize);
+          ctx.drawImage(
+            sprites.coin,
+            posX + coinOffset,
+            posY + coinOffset,
+            coinSize,
+            coinSize
+          );
         }
       }
     });
@@ -866,7 +957,14 @@ export const GameCanvas = ({
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     ctx.restore();
-  }, [player, executives, collectibles, speedBoost, invincibilityTimer, sprites]);
+  }, [
+    player,
+    executives,
+    collectibles,
+    speedBoost,
+    invincibilityTimer,
+    sprites,
+  ]);
 
   return (
     <canvas
@@ -874,7 +972,11 @@ export const GameCanvas = ({
       width={MAZE_WIDTH * CELL_SIZE}
       height={MAZE_HEIGHT * CELL_SIZE}
       className="w-full h-auto arcade-glow"
-      style={{ background: "#0a0a1a", border: "3px solid #ff00ff", boxShadow: "0 0 20px #ff00ff" }}
+      style={{
+        background: "#0a0a1a",
+        border: "3px solid #ff00ff",
+        boxShadow: "0 0 20px #ff00ff",
+      }}
     />
   );
 };
