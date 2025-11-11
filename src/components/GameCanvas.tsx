@@ -215,7 +215,7 @@ export const GameCanvas = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       keysPressed.current.add(e.key.toLowerCase());
       
-      if (e.key === "x" || e.key === "X") {
+      if (e.key === "p" || e.key === "P") {
         handleAction();
       }
       
@@ -333,10 +333,10 @@ const handleAction = () => {
       let dy = 0;
       const speed = speedBoost > 0 ? PLAYER_SPEED * 2 : PLAYER_SPEED;
 
-      if (keysPressed.current.has("arrowup")) dy = -speed;
-      if (keysPressed.current.has("arrowdown")) dy = speed;
-      if (keysPressed.current.has("arrowleft")) dx = -speed;
-      if (keysPressed.current.has("arrowright")) dx = speed;
+      if (keysPressed.current.has("w")) dy = -speed;
+      if (keysPressed.current.has("s")) dy = speed;
+      if (keysPressed.current.has("a")) dx = -speed;
+      if (keysPressed.current.has("d")) dx = speed;
 
       if (dx !== 0 || dy !== 0) {
         setPlayerDirection({ x: dx, y: dy });
