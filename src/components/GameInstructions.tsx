@@ -34,16 +34,6 @@ export const GameInstructions = () => {
           </ul>
         </div>
 
-        <div>
-          <h3 className="text-arcade-cyan font-bold mb-2">👨‍💼 EXECUTIVES</h3>
-          <ul className="space-y-1 text-xs text-muted-foreground">
-            <li className="text-arcade-pink">• Boomer Bob: "Back in MY day!"</li>
-            <li className="text-arcade-yellow">• Nostalgic Ned: Erratic movement</li>
-            <li className="text-arcade-green">• Traditional Tom: Blocks rooms</li>
-            <li className="text-secondary">• Grumpy Greg: Fast & cranky</li>
-          </ul>
-        </div>
-
         <div className="pt-2 border-t border-border">
           <p className="text-xs text-muted-foreground italic">
             Avoid their vision cones! Sneak behind them to stick a kick-me sign!
