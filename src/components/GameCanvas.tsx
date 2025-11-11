@@ -21,6 +21,7 @@ interface Collectible {
   position: Position;
   type: "computer" | "wall" | "coworker" | "coffee" | "coin";
   collected: boolean;
+  damaged?: boolean; // For computers, walls, coworkers - shows modified state
   value?: number;
 }
 
@@ -259,10 +260,12 @@ export const GameCanvas = ({
   }, []);
 
 const handleAction = () => {
-    // Check for nearby collectibles (destroy instead of collect -> spawn a coin)
+    // Check for nearby collectibles (damage/modify instead of destroy -> spawn a coin)
     const nearby = collectibles.find(
       (c) =>
         !c.collected &&
+        !c.damaged &&
+        c.type !== "coin" &&
         Math.abs(c.position.x - player.x) <= 1 &&
         Math.abs(c.position.y - player.y) <= 1
     );
@@ -281,16 +284,20 @@ const handleAction = () => {
         coinValue = 10;
         sound = "cake";
       } else if (nearby.type === "coffee") {
-        // Power-up still applies, plus coin appears
+        // Power-up: collect it entirely (it disappears)
         setSpeedBoost(SPEED_BOOST_DURATION);
         sound = "powerup";
+        setCollectibles((prev) =>
+          prev.map((c) => (c === nearby ? { ...c, collected: true } : c))
+        );
+        return;
       }
 
       if (sound) playSound(sound);
 
-      // Remove the item and spawn a coin at its position
+      // Damage the item (keep it visible but modified) and spawn a coin
       setCollectibles((prev) => {
-        const updated = prev.map((c) => (c === nearby ? { ...c, collected: true } : c));
+        const updated = prev.map((c) => (c === nearby ? { ...c, damaged: true } : c));
         return [
           ...updated,
           {
@@ -662,18 +669,39 @@ const handleAction = () => {
         ctx.fillStyle = "#1a1a1a";
         ctx.fillRect(-11, -9, 22, 16);
         
-        // Screen
-        const screenGrad = ctx.createLinearGradient(-10, -8, 10, 8);
-        screenGrad.addColorStop(0, "#4a9eff");
-        screenGrad.addColorStop(1, "#2a6fbb");
-        ctx.fillStyle = screenGrad;
-        ctx.fillRect(-10, -8, 20, 14);
-        
-        // Screen details
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(-8, -6, 7, 1);
-        ctx.fillRect(-8, -4, 10, 1);
-        ctx.fillRect(-8, -2, 6, 1);
+        if (c.damaged) {
+          // Damaged screen - cracked and glitching
+          ctx.fillStyle = "#1a1a1a";
+          ctx.fillRect(-10, -8, 20, 14);
+          
+          // Crack lines
+          ctx.strokeStyle = "#ff4444";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-8, -6);
+          ctx.lineTo(6, 4);
+          ctx.moveTo(8, -4);
+          ctx.lineTo(-6, 6);
+          ctx.stroke();
+          
+          // Sparks
+          ctx.fillStyle = "#ffff00";
+          ctx.fillRect(4, 2, 2, 3);
+          ctx.fillRect(-7, -3, 2, 3);
+        } else {
+          // Normal screen
+          const screenGrad = ctx.createLinearGradient(-10, -8, 10, 8);
+          screenGrad.addColorStop(0, "#4a9eff");
+          screenGrad.addColorStop(1, "#2a6fbb");
+          ctx.fillStyle = screenGrad;
+          ctx.fillRect(-10, -8, 20, 14);
+          
+          // Screen details
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(-8, -6, 7, 1);
+          ctx.fillRect(-8, -4, 10, 1);
+          ctx.fillRect(-8, -2, 6, 1);
+        }
         
         // Base
         ctx.fillStyle = "#3a3a3a";
@@ -681,8 +709,8 @@ const handleAction = () => {
         ctx.fillRect(-3, 12, 6, 2);
         
       } else if (c.type === "wall") {
-        // Whiteboard
-        ctx.fillStyle = "#e0e0e0";
+        // Whiteboard - painted pink if damaged
+        ctx.fillStyle = c.damaged ? "#ff69b4" : "#e0e0e0";
         ctx.fillRect(-14, -12, 28, 20);
         
         // Frame
@@ -690,11 +718,21 @@ const handleAction = () => {
         ctx.lineWidth = 2;
         ctx.strokeRect(-14, -12, 28, 20);
         
-        // Graffiti placeholder
-        ctx.fillStyle = "#ff6b9d";
-        ctx.font = "bold 10px Arial";
-        ctx.fillText("GRAFFITI", -13, -2);
-        ctx.fillText("HERE!", -10, 5);
+        if (c.damaged) {
+          // Pink graffiti art
+          ctx.fillStyle = "#ff1493";
+          ctx.font = "bold 12px Arial";
+          ctx.fillText("♥ Y2K ♥", -12, -2);
+          ctx.fillStyle = "#ff69b4";
+          ctx.font = "bold 10px Arial";
+          ctx.fillText("REBEL!", -10, 6);
+        } else {
+          // Original graffiti placeholder
+          ctx.fillStyle = "#ff6b9d";
+          ctx.font = "bold 10px Arial";
+          ctx.fillText("GRAFFITI", -13, -2);
+          ctx.fillText("HERE!", -10, 5);
+        }
         
         // Markers at bottom
         ctx.fillStyle = "#333";
@@ -718,17 +756,39 @@ const handleAction = () => {
         ctx.arc(2, -12, 4, 0, Math.PI);
         ctx.fill();
         
-        // Eyes
-        ctx.fillStyle = "#000";
-        ctx.fillRect(-4, -9, 2, 2);
-        ctx.fillRect(2, -9, 2, 2);
-        
-        // Smile
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(0, -6, 3, 0, Math.PI);
-        ctx.stroke();
+        if (c.damaged) {
+          // Pie on face!
+          ctx.fillStyle = "#f5deb3";
+          ctx.beginPath();
+          ctx.arc(0, -7, 9, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Whipped cream
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.arc(-3, -8, 3, 0, Math.PI * 2);
+          ctx.arc(3, -8, 3, 0, Math.PI * 2);
+          ctx.arc(0, -10, 3, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Eyes peeking through
+          ctx.fillStyle = "#000";
+          ctx.fillRect(-4, -9, 2, 1);
+          ctx.fillRect(2, -9, 2, 1);
+        } else {
+          // Normal face
+          // Eyes
+          ctx.fillStyle = "#000";
+          ctx.fillRect(-4, -9, 2, 2);
+          ctx.fillRect(2, -9, 2, 2);
+          
+          // Smile
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(0, -6, 3, 0, Math.PI);
+          ctx.stroke();
+        }
         
         // Body - shirt
         const shirtGrad = ctx.createLinearGradient(-8, 0, 8, 14);
