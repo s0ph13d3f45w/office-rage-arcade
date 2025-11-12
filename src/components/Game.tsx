@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { GameCanvas } from "./GameCanvas";
 import { GameHUD } from "./GameHUD";
 import { GameInstructions } from "./GameInstructions";
@@ -51,20 +51,23 @@ export const Game = () => {
     });
   };
 
-  const togglePause = () => {
-    setGameState((prev) => ({ ...prev, isPaused: !prev.isPaused }));
-  };
+  const togglePause = useCallback(() => {
+    setGameState((prev) => {
+      console.log("togglePause called, current isPaused:", prev.isPaused);
+      return { ...prev, isPaused: !prev.isPaused };
+    });
+  }, []); // Empty deps - uses functional update so doesn't need isPaused in deps
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <div className="w-full px-4 py-4">
-        <img 
-          src={newspaperHeader} 
-          alt="Did Women Ruin the Workplace? - Interesting Times Opinion" 
+        <img
+          src={newspaperHeader}
+          alt="Did Women Ruin the Workplace? - Interesting Times Opinion"
           className="w-full h-auto rounded-lg shadow-lg max-w-7xl mx-auto"
         />
       </div>
-      
+
       <div className="flex-1 flex items-center justify-center px-4 pb-4">
         <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-4">
           <div className="flex-1 flex flex-col gap-4">
@@ -80,6 +83,7 @@ export const Game = () => {
                 gameState={gameState}
                 updateScore={updateScore}
                 loseLife={loseLife}
+                togglePause={togglePause}
               />
               {gameState.isGameOver && (
                 <GameOver score={gameState.score} onRestart={resetGame} />
