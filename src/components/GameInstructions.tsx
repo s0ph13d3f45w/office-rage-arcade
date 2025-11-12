@@ -13,7 +13,7 @@ export const GameInstructions = () => {
           <ul className="space-y-1 text-muted-foreground font-semibold">
             <li>W/A/S/D: Move</li>
             <li>P: Destroy/Action</li>
-            <li>Space: Emergency HR Call</li>
+            <li>Space: Pause/Resume</li>
           </ul>
         </div>
 

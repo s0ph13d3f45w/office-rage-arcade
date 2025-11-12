@@ -24,8 +24,6 @@ interface Executive {
   scaredTimer: number;
   color: string;
   name: string;
-  speech: string;
-  scaredSpeech: string;
 }
 
 interface Collectible {
@@ -34,11 +32,15 @@ interface Collectible {
   collected: boolean;
   damaged?: boolean; // For computers, walls, coworkers - shows modified state
   value?: number;
+  expireTimer?: number; // For coins: timer until they disappear (in frames, 60fps)
+  animationStartPos?: Position; // For coins: starting position for bounce animation
+  animationProgress?: number; // For coins: animation progress 0-1
+  damageTimer?: number; // For damaged items: timer until they disappear (in frames, 60fps)
 }
 
 const CELL_SIZE = 40;
 const MAZE_WIDTH = 20;
-const MAZE_HEIGHT = 16;
+const MAZE_HEIGHT = 12;
 const VISION_DISTANCE = 3; // Reduced vision range
 const SPEED_BOOST_DURATION = 180; // 3 seconds at 60fps
 const SCARED_DURATION = 180; // 3 seconds at 60fps
@@ -51,13 +53,21 @@ export const GameCanvas = ({
   gameState,
   updateScore,
   loseLife,
+  togglePause,
 }: {
   gameState: GameState;
   updateScore: (points: number) => void;
   loseLife: () => void;
+  togglePause: () => void;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [player, setPlayer] = useState<Position>({ x: 10, y: 8 }); // Start in center
+  // Define player spawn position first - this will be excluded from wall generation
+  const PLAYER_SPAWN_X = 10;
+  const PLAYER_SPAWN_Y = 6;
+  const [player, setPlayer] = useState<Position>({
+    x: PLAYER_SPAWN_X,
+    y: PLAYER_SPAWN_Y,
+  }); // Start in center
   const [playerDirection, setPlayerDirection] = useState<Position>({
     x: 0,
     y: 0,
@@ -65,6 +75,8 @@ export const GameCanvas = ({
   const [speedBoost, setSpeedBoost] = useState(0);
   const [invincibilityTimer, setInvincibilityTimer] = useState(0);
   const [catchCooldown, setCatchCooldown] = useState(0);
+  const [executiveDropTimer, setExecutiveDropTimer] = useState(180); // 3 seconds at 60fps
+  const MAX_DROPPED_ITEMS = 15; // Maximum number of items (coffee, wall, computer) that can exist at once
   const keysPressed = useRef<Set<string>>(new Set());
 
   // Preload all sprite images
@@ -126,104 +138,183 @@ export const GameCanvas = ({
     loadSprites();
   }, []);
 
-  const [executives, setExecutives] = useState<Executive[]>([
-    {
-      position: { x: 2, y: 2 },
-      direction: { x: 1, y: 0 },
-      isScared: false,
-      scaredTimer: 0,
-      color: "#FF1493",
-      name: "Boomer Bob",
-      speech: "Back in MY day!",
-      scaredSpeech: "We need training!",
-    },
-    {
-      position: { x: 17, y: 2 },
-      direction: { x: 0, y: 1 },
-      isScared: false,
-      scaredTimer: 0,
-      color: "#FFD700",
-      name: "Nostalgic Ned",
-      speech: "Good old days...",
-      scaredSpeech: "Everything better!",
-    },
-    {
-      position: { x: 2, y: 13 },
-      direction: { x: 0, y: -1 },
-      isScared: false,
-      scaredTimer: 0,
-      color: "#00FF00",
-      name: "Traditional Tom",
-      speech: "Very disruptive!",
-      scaredSpeech: "Diversity workshop!",
-    },
-    {
-      position: { x: 17, y: 13 },
-      direction: { x: -1, y: 0 },
-      isScared: false,
-      scaredTimer: 0,
-      color: "#00FFFF",
-      name: "Grumpy Greg",
-      speech: "PC gone mad!",
-      scaredSpeech: "HR is calling!",
-    },
-  ]);
+  // Helper function to check if a position should be excluded (player spawn row/column)
+  const isPlayerSpawnArea = (x: number, y: number) => {
+    return x === PLAYER_SPAWN_X || y === PLAYER_SPAWN_Y;
+  };
 
-  // Maze walls
+  // Maze walls - generated after player spawn is defined
   const [maze] = useState<boolean[][]>(() => {
     const m = Array(MAZE_HEIGHT)
       .fill(0)
       .map(() => Array(MAZE_WIDTH).fill(false));
 
-    // Outer walls
+    // Outer walls (but exclude player spawn row/column)
     for (let x = 0; x < MAZE_WIDTH; x++) {
-      m[0][x] = true;
-      m[MAZE_HEIGHT - 1][x] = true;
+      if (!isPlayerSpawnArea(x, 0)) {
+        m[0][x] = true;
+      }
+      if (!isPlayerSpawnArea(x, MAZE_HEIGHT - 1)) {
+        m[MAZE_HEIGHT - 1][x] = true;
+      }
     }
     for (let y = 0; y < MAZE_HEIGHT; y++) {
-      m[y][0] = true;
-      m[y][MAZE_WIDTH - 1] = true;
+      if (!isPlayerSpawnArea(0, y)) {
+        m[y][0] = true;
+      }
+      if (!isPlayerSpawnArea(MAZE_WIDTH - 1, y)) {
+        m[y][MAZE_WIDTH - 1] = true;
+      }
     }
 
     // Internal maze walls
     // Vertical walls
     for (let y = 2; y < MAZE_HEIGHT - 2; y += 3) {
       for (let x = 3; x < MAZE_WIDTH - 3; x += 4) {
-        m[y][x] = true;
-        if (Math.random() > 0.3) m[y + 1][x] = true;
+        // Skip if in player spawn row or column
+        if (!isPlayerSpawnArea(x, y)) {
+          m[y][x] = true;
+        }
+        if (!isPlayerSpawnArea(x, y + 1) && Math.random() > 0.3) {
+          m[y + 1][x] = true;
+        }
       }
     }
 
     // Horizontal walls
     for (let x = 2; x < MAZE_WIDTH - 2; x += 3) {
       for (let y = 4; y < MAZE_HEIGHT - 4; y += 4) {
-        m[y][x] = true;
-        if (Math.random() > 0.3) m[y][x + 1] = true;
+        // Skip if in player spawn row or column
+        if (!isPlayerSpawnArea(x, y)) {
+          m[y][x] = true;
+        }
+        if (!isPlayerSpawnArea(x + 1, y) && Math.random() > 0.3) {
+          m[y][x + 1] = true;
+        }
       }
     }
 
-    // Add some room-like structures
+    // Add some room-like structures (but exclude if they overlap with player spawn area)
     const rooms = [
-      { x: 5, y: 5, w: 3, h: 3 },
-      { x: 13, y: 3, w: 4, h: 3 },
-      { x: 3, y: 10, w: 3, h: 4 },
-      { x: 14, y: 10, w: 4, h: 4 },
+      { x: 5, y: 4, w: 3, h: 2 },
+      { x: 13, y: 2, w: 4, h: 2 },
+      { x: 3, y: 9, w: 3, h: 2 },
+      { x: 14, y: 9, w: 4, h: 2 },
     ];
 
     rooms.forEach((room) => {
-      for (let x = room.x; x < room.x + room.w; x++) {
-        m[room.y][x] = true;
-        m[room.y + room.h - 1][x] = true;
+      // Check if room overlaps with player spawn row or column
+      const overlapsSpawnRow =
+        room.y <= PLAYER_SPAWN_Y && room.y + room.h > PLAYER_SPAWN_Y;
+      const overlapsSpawnCol =
+        room.x <= PLAYER_SPAWN_X && room.x + room.w > PLAYER_SPAWN_X;
+
+      // Only add room if it doesn't overlap with player spawn area
+      if (!overlapsSpawnRow && !overlapsSpawnCol) {
+        for (let x = room.x; x < room.x + room.w; x++) {
+          m[room.y][x] = true;
+          m[room.y + room.h - 1][x] = true;
+        }
+        for (let y = room.y; y < room.y + room.h; y++) {
+          m[y][room.x] = true;
+          m[y][room.x + room.w - 1] = true;
+        }
+        // Add door
+        m[room.y + Math.floor(room.h / 2)][room.x] = false;
       }
-      for (let y = room.y; y < room.y + room.h; y++) {
-        m[y][room.x] = true;
-        m[y][room.x + room.w - 1] = true;
-      }
-      // Add door
-      m[room.y + Math.floor(room.h / 2)][room.x] = false;
     });
 
+    // Ensure player spawn position itself is never a wall
+    m[PLAYER_SPAWN_Y][PLAYER_SPAWN_X] = false;
+
     return m;
+  });
+
+  const [executives, setExecutives] = useState<Executive[]>(() => {
+    // Helper to check if a position is walkable (not a wall and not player spawn area)
+    const isWalkable = (x: number, y: number) => {
+      return (
+        x >= 0 &&
+        x < MAZE_WIDTH &&
+        y >= 0 &&
+        y < MAZE_HEIGHT &&
+        !maze[y][x] &&
+        !isPlayerSpawnArea(x, y)
+      );
+    };
+
+    // Find safe positions in corners/edges for executives
+    const findSafePosition = (
+      preferredX: number,
+      preferredY: number
+    ): Position => {
+      // Try preferred position first
+      if (isWalkable(preferredX, preferredY)) {
+        return { x: preferredX, y: preferredY };
+      }
+
+      // Try nearby positions in a spiral pattern
+      for (let radius = 1; radius < 5; radius++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            if (Math.abs(dx) === radius || Math.abs(dy) === radius) {
+              const x = preferredX + dx;
+              const y = preferredY + dy;
+              if (isWalkable(x, y)) {
+                return { x, y };
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback: find any walkable position
+      for (let y = 1; y < MAZE_HEIGHT - 1; y++) {
+        for (let x = 1; x < MAZE_WIDTH - 1; x++) {
+          if (isWalkable(x, y)) {
+            return { x, y };
+          }
+        }
+      }
+
+      // Last resort: return preferred position (shouldn't happen)
+      return { x: preferredX, y: preferredY };
+    };
+
+    return [
+      {
+        position: findSafePosition(2, 2),
+        direction: { x: 1, y: 0 },
+        isScared: false,
+        scaredTimer: 0,
+        color: "#FF1493",
+        name: "Boomer Bob",
+      },
+      {
+        position: findSafePosition(17, 2),
+        direction: { x: 0, y: 1 },
+        isScared: false,
+        scaredTimer: 0,
+        color: "#FFD700",
+        name: "Nostalgic Ned",
+      },
+      {
+        position: findSafePosition(2, 10),
+        direction: { x: 0, y: -1 },
+        isScared: false,
+        scaredTimer: 0,
+        color: "#00FF00",
+        name: "Traditional Tom",
+      },
+      {
+        position: findSafePosition(17, 10),
+        direction: { x: -1, y: 0 },
+        isScared: false,
+        scaredTimer: 0,
+        color: "#00FFFF",
+        name: "Grumpy Greg",
+      },
+    ];
   });
 
   const [collectibles, setCollectibles] = useState<Collectible[]>(() => {
@@ -289,15 +380,45 @@ export const GameCanvas = ({
     return items;
   });
 
+  const collectiblesRef = useRef<Collectible[]>([]);
+  const executivesRef = useRef<Executive[]>([]);
+  const playerRef = useRef<Position>({ x: PLAYER_SPAWN_X, y: PLAYER_SPAWN_Y });
+  const togglePauseRef = useRef(togglePause);
+  const handleActionRef = useRef<() => void>();
+
+  // Keep refs in sync with state and props
+  useEffect(() => {
+    collectiblesRef.current = collectibles;
+  }, [collectibles]);
+
+  useEffect(() => {
+    executivesRef.current = executives;
+  }, [executives]);
+
+  useEffect(() => {
+    playerRef.current = player;
+  }, [player]);
+
+  useEffect(() => {
+    togglePauseRef.current = togglePause;
+    console.log(
+      "togglePauseRef updated, function exists:",
+      typeof togglePause === "function"
+    );
+  }, [togglePause]);
+
   const handleAction = useCallback(() => {
     // Check for nearby collectibles (damage/modify instead of destroy -> spawn a coin)
-    const nearby = collectibles.find(
+    const currentCollectibles = collectiblesRef.current;
+    const currentPlayer = playerRef.current;
+
+    const nearby = currentCollectibles.find(
       (c) =>
         !c.collected &&
         !c.damaged &&
         c.type !== "coin" &&
-        Math.abs(c.position.x - player.x) <= 1 &&
-        Math.abs(c.position.y - player.y) <= 1
+        Math.abs(c.position.x - currentPlayer.x) <= 1 &&
+        Math.abs(c.position.y - currentPlayer.y) <= 1
     );
 
     if (nearby) {
@@ -325,20 +446,80 @@ export const GameCanvas = ({
 
       if (sound) playSound(sound);
 
-      // Damage the item (keep it visible but modified) and spawn a coin
+      // Damage the item (keep it visible but modified) and spawn 3 coins on nearby tiles
       setCollectibles((prev) => {
+        // Set different timers: computers and whiteboards disappear after 3 seconds, coworkers revert after 5 seconds
+        const timer = nearby.type === "coworker" ? 300 : 180; // 5 seconds for coworkers, 3 seconds for others
         const updated = prev.map((c) =>
-          c === nearby ? { ...c, damaged: true } : c
+          c === nearby ? { ...c, damaged: true, damageTimer: timer } : c
         );
-        return [
-          ...updated,
-          {
-            position: { ...nearby.position },
-            type: "coin" as const,
-            collected: false,
-            value: coinValue,
-          },
-        ];
+
+        // Find 3 random nearby walkable positions
+        const findNearbyWalkablePositions = (
+          centerX: number,
+          centerY: number,
+          count: number
+        ): Position[] => {
+          const positions: Position[] = [];
+          const checked = new Set<string>();
+          const isWalkable = (x: number, y: number) => {
+            const gridX = Math.floor(x);
+            const gridY = Math.floor(y);
+            const key = `${gridX},${gridY}`;
+            if (checked.has(key)) return false;
+            checked.add(key);
+            return (
+              gridX >= 0 &&
+              gridX < MAZE_WIDTH &&
+              gridY >= 0 &&
+              gridY < MAZE_HEIGHT &&
+              !maze[gridY]?.[gridX] &&
+              // Check that no other collectible is already at this position
+              !prev.some(
+                (c) =>
+                  !c.collected &&
+                  c.position.x === gridX &&
+                  c.position.y === gridY
+              )
+            );
+          };
+
+          // Try positions in a 3x3 area around the center
+          const candidates: Position[] = [];
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const x = Math.floor(centerX) + dx;
+              const y = Math.floor(centerY) + dy;
+              if (isWalkable(x, y)) {
+                candidates.push({ x, y });
+              }
+            }
+          }
+
+          // Shuffle and take up to count positions
+          const shuffled = candidates.sort(() => Math.random() - 0.5);
+          return shuffled.slice(0, Math.min(count, shuffled.length));
+        };
+
+        const coinPositions = findNearbyWalkablePositions(
+          nearby.position.x,
+          nearby.position.y,
+          3
+        );
+
+        // Create 3 coins with expire timers and bounce animation
+        const startPos = { x: nearby.position.x, y: nearby.position.y };
+        const newCoins = coinPositions.map((pos) => ({
+          position: pos, // Final position
+          type: "coin" as const,
+          collected: false,
+          value: coinValue,
+          expireTimer: 180, // 3 seconds at 60fps
+          animationStartPos: startPos, // Start animation from destroyed item position
+          animationProgress: 0, // Start at 0, will animate to 1
+        }));
+
+        return [...updated, ...newCoins];
       });
     }
 
@@ -347,8 +528,8 @@ export const GameCanvas = ({
       prev.map((exec) => {
         if (
           !exec.isScared &&
-          Math.abs(exec.position.x - player.x) <= 1 &&
-          Math.abs(exec.position.y - player.y) <= 1
+          Math.abs(exec.position.x - currentPlayer.x) <= 1 &&
+          Math.abs(exec.position.y - currentPlayer.y) <= 1
         ) {
           playSound("kickme");
           return { ...exec, isScared: true, scaredTimer: SCARED_DURATION };
@@ -356,58 +537,67 @@ export const GameCanvas = ({
         return exec;
       })
     );
-  }, [collectibles, player]);
+  }, []);
+
+  // Store handleAction in ref
+  useEffect(() => {
+    handleActionRef.current = handleAction;
+  }, [handleAction]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      keysPressed.current.add(e.key.toLowerCase());
+      const key = e.key.toLowerCase();
 
-      if (e.key === "p" || e.key === "P") {
-        handleAction();
+      // Handle space bar separately (before adding to keysPressed)
+      if (e.key === " " || key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log(
+          "Space bar pressed, togglePauseRef.current:",
+          togglePauseRef.current
+        );
+        if (togglePauseRef.current) {
+          console.log("Calling togglePause");
+          togglePauseRef.current();
+        } else {
+          console.error("togglePauseRef.current is null/undefined!");
+        }
+        return; // Don't add space to keysPressed
       }
 
-      if (e.key === " ") {
-        e.preventDefault();
-        // Emergency HR call - could clear executives briefly
+      keysPressed.current.add(key);
+
+      if (key === "p") {
+        handleActionRef.current?.();
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      keysPressed.current.delete(e.key.toLowerCase());
+      const key = e.key.toLowerCase();
+      keysPressed.current.delete(key);
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
+    // Try both window and document to ensure we capture events
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("keyup", handleKeyUp, true);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("keyup", handleKeyUp, true);
     };
-  }, [handleAction]);
+  }, []); // Empty dependency array - listener never re-registers
 
-  // Ensure player starts on a walkable tile (avoid spawning inside walls)
+  // Safety check: ensure player starts on a walkable tile (shouldn't be needed now, but kept as safety)
   useEffect(() => {
     const gx = Math.floor(player.x);
     const gy = Math.floor(player.y);
     if (maze[gy]?.[gx]) {
-      const cx = Math.floor(MAZE_WIDTH / 2);
-      const cy = Math.floor(MAZE_HEIGHT / 2);
-      outer: for (let r = 0; r < Math.max(MAZE_WIDTH, MAZE_HEIGHT); r++) {
-        for (let y = cy - r; y <= cy + r; y++) {
-          for (let x = cx - r; x <= cx + r; x++) {
-            if (
-              x >= 0 &&
-              x < MAZE_WIDTH &&
-              y >= 0 &&
-              y < MAZE_HEIGHT &&
-              !maze[y][x]
-            ) {
-              setPlayer({ x, y });
-              break outer;
-            }
-          }
-        }
-      }
+      // If somehow player is in a wall, reset to spawn position
+      setPlayer({ x: PLAYER_SPAWN_X, y: PLAYER_SPAWN_Y });
     }
   }, []);
 
@@ -444,7 +634,7 @@ export const GameCanvas = ({
               gridX < MAZE_WIDTH &&
               gridY >= 0 &&
               gridY < MAZE_HEIGHT &&
-              !maze[gridY][gridX]
+              !maze[gridY]?.[gridX]
             );
           };
 
@@ -605,6 +795,175 @@ export const GameCanvas = ({
         })
       );
 
+      // Update coin expiration timers and animation progress
+      setCollectibles((prev) => {
+        return prev.map((c) => {
+          if (c.type === "coin" && !c.collected) {
+            let updated = { ...c };
+
+            // Update expiration timer
+            if (c.expireTimer !== undefined) {
+              const newTimer = c.expireTimer - 1;
+              if (newTimer <= 0) {
+                // Coin expired, mark as collected to remove it
+                return { ...updated, collected: true };
+              }
+              updated = { ...updated, expireTimer: newTimer };
+            }
+
+            // Update animation progress (animate over 30 frames = 0.5 seconds)
+            if (c.animationProgress !== undefined && c.animationProgress < 1) {
+              const newProgress = Math.min(1, c.animationProgress + 1 / 30);
+              updated = { ...updated, animationProgress: newProgress };
+              // Remove animation properties once complete
+              if (newProgress >= 1) {
+                const { animationStartPos, animationProgress, ...rest } =
+                  updated;
+                return rest;
+              }
+            }
+
+            return updated;
+          }
+          return c;
+        });
+      });
+
+      // Update damaged item timers and remove expired items
+      setCollectibles((prev) => {
+        return prev.map((c) => {
+          if (c.damaged && !c.collected && c.damageTimer !== undefined) {
+            const newTimer = c.damageTimer - 1;
+            if (newTimer <= 0) {
+              // Item expired
+              if (c.type === "coworker") {
+                // Coworkers revert back to normal instead of disappearing
+                const { damaged, damageTimer, ...rest } = c;
+                return rest;
+              } else {
+                // Computers and whiteboards disappear
+                return { ...c, collected: true };
+              }
+            }
+            return { ...c, damageTimer: newTimer };
+          }
+          return c;
+        });
+      });
+
+      // Executive drop timer - spawn items every 3 seconds
+      setExecutiveDropTimer((prev) => {
+        if (prev <= 0) {
+          // Time to drop an item - select random executive
+          const currentExecutives = executivesRef.current;
+          const currentCollectibles = collectiblesRef.current;
+          const activeExecutives = currentExecutives.filter(
+            (exec) => !exec.isScared
+          );
+
+          // Count existing dropped items (coffee, wall, computer) - exclude coins and damaged items that will disappear
+          const droppedItemCount = currentCollectibles.filter(
+            (c) =>
+              !c.collected &&
+              (c.type === "coffee" ||
+                c.type === "wall" ||
+                c.type === "computer")
+          ).length;
+
+          // Only spawn if we're under the maximum limit
+          if (
+            activeExecutives.length > 0 &&
+            droppedItemCount < MAX_DROPPED_ITEMS
+          ) {
+            const randomExecutive =
+              activeExecutives[
+                Math.floor(Math.random() * activeExecutives.length)
+              ];
+
+            // Find a walkable position near the executive
+            const findNearbyWalkablePosition = (
+              centerX: number,
+              centerY: number
+            ): Position | null => {
+              const checked = new Set<string>();
+              const isWalkable = (x: number, y: number) => {
+                const gridX = Math.floor(x);
+                const gridY = Math.floor(y);
+                const key = `${gridX},${gridY}`;
+                if (checked.has(key)) return false;
+                checked.add(key);
+                return (
+                  gridX >= 0 &&
+                  gridX < MAZE_WIDTH &&
+                  gridY >= 0 &&
+                  gridY < MAZE_HEIGHT &&
+                  !maze[gridY]?.[gridX]
+                );
+              };
+
+              // Try positions in a 3x3 area around the executive
+              const candidates: Position[] = [];
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  const x = Math.floor(centerX) + dx;
+                  const y = Math.floor(centerY) + dy;
+                  if (isWalkable(x, y)) {
+                    candidates.push({ x, y });
+                  }
+                }
+              }
+
+              // Check that no other collectible is already at this position
+              const availablePositions = candidates.filter((pos) => {
+                return !currentCollectibles.some(
+                  (c) =>
+                    !c.collected &&
+                    c.position.x === pos.x &&
+                    c.position.y === pos.y
+                );
+              });
+
+              if (availablePositions.length > 0) {
+                // Return a random available position
+                return availablePositions[
+                  Math.floor(Math.random() * availablePositions.length)
+                ];
+              }
+              return null;
+            };
+
+            const dropPosition = findNearbyWalkablePosition(
+              randomExecutive.position.x,
+              randomExecutive.position.y
+            );
+
+            if (dropPosition) {
+              // Randomly select item type: coffee, whiteboard, or computer
+              const itemTypes: ("coffee" | "wall" | "computer")[] = [
+                "coffee",
+                "wall",
+                "computer",
+              ];
+              const randomItemType =
+                itemTypes[Math.floor(Math.random() * itemTypes.length)];
+
+              // Add the new collectible
+              setCollectibles((prev) => [
+                ...prev,
+                {
+                  position: dropPosition,
+                  type: randomItemType,
+                  collected: false,
+                },
+              ]);
+            }
+          }
+          // Reset timer to 180 frames (3 seconds)
+          return 180;
+        }
+        return prev - 1;
+      });
+
       // Collect coins by walking over them
       const playerGX = Math.floor(player.x);
       const playerGY = Math.floor(player.y);
@@ -679,30 +1038,40 @@ export const GameCanvas = ({
 
             // Smart respawn: find safe location
             const findSafeSpawn = () => {
-              const attempts = 50;
-              for (let i = 0; i < attempts; i++) {
-                const x = 2 + Math.floor(Math.random() * (MAZE_WIDTH - 4));
-                const y = 2 + Math.floor(Math.random() * (MAZE_HEIGHT - 4));
-
-                // Check if walkable
-                if (maze[y][x]) continue;
+              // Helper to check if a position is safe (walkable and far from executives)
+              const isSafePosition = (x: number, y: number) => {
+                // Check if walkable (not a wall)
+                if (maze[y]?.[x]) return false;
 
                 // Check distance from all executives
-                let safe = true;
                 for (const e of executives) {
                   const dist = Math.sqrt(
                     (e.position.x - x) ** 2 + (e.position.y - y) ** 2
                   );
                   if (dist < 6) {
-                    safe = false;
-                    break;
+                    return false;
                   }
                 }
+                return true;
+              };
 
-                if (safe) return { x, y };
+              // First, try the original spawn position
+              if (isSafePosition(PLAYER_SPAWN_X, PLAYER_SPAWN_Y)) {
+                return { x: PLAYER_SPAWN_X, y: PLAYER_SPAWN_Y };
               }
 
-              // Fallback: spawn in farthest corner from all executives
+              // If original spawn isn't safe, try random positions
+              const attempts = 50;
+              for (let i = 0; i < attempts; i++) {
+                const x = 2 + Math.floor(Math.random() * (MAZE_WIDTH - 4));
+                const y = 2 + Math.floor(Math.random() * (MAZE_HEIGHT - 4));
+
+                if (isSafePosition(x, y)) {
+                  return { x, y };
+                }
+              }
+
+              // Fallback: try corners (check if walkable, prioritize distance from executives)
               const corners = [
                 { x: 2, y: 2 },
                 { x: MAZE_WIDTH - 3, y: 2 },
@@ -710,24 +1079,43 @@ export const GameCanvas = ({
                 { x: MAZE_WIDTH - 3, y: MAZE_HEIGHT - 3 },
               ];
 
-              let farthest = corners[0];
-              let maxDist = 0;
+              // Filter to only walkable corners
+              const walkableCorners = corners.filter(
+                (corner) => !maze[corner.y]?.[corner.x]
+              );
 
-              for (const corner of corners) {
-                let totalDist = 0;
-                for (const e of executives) {
-                  totalDist += Math.sqrt(
-                    (e.position.x - corner.x) ** 2 +
-                      (e.position.y - corner.y) ** 2
-                  );
+              if (walkableCorners.length > 0) {
+                // Find farthest corner from all executives
+                let farthest = walkableCorners[0];
+                let maxDist = 0;
+
+                for (const corner of walkableCorners) {
+                  let totalDist = 0;
+                  for (const e of executives) {
+                    totalDist += Math.sqrt(
+                      (e.position.x - corner.x) ** 2 +
+                        (e.position.y - corner.y) ** 2
+                    );
+                  }
+                  if (totalDist > maxDist) {
+                    maxDist = totalDist;
+                    farthest = corner;
+                  }
                 }
-                if (totalDist > maxDist) {
-                  maxDist = totalDist;
-                  farthest = corner;
+                return farthest;
+              }
+
+              // Last resort: find any walkable position
+              for (let y = 1; y < MAZE_HEIGHT - 1; y++) {
+                for (let x = 1; x < MAZE_WIDTH - 1; x++) {
+                  if (!maze[y][x]) {
+                    return { x, y };
+                  }
                 }
               }
 
-              return farthest;
+              // Should never reach here, but return original spawn as fallback
+              return { x: PLAYER_SPAWN_X, y: PLAYER_SPAWN_Y };
             };
 
             setPlayer(findSafeSpawn());
@@ -744,6 +1132,7 @@ export const GameCanvas = ({
     speedBoost,
     invincibilityTimer,
     catchCooldown,
+    maze,
   ]);
 
   useEffect(() => {
@@ -773,31 +1162,30 @@ export const GameCanvas = ({
       ctx.stroke();
     }
 
-    // Draw maze walls with neon 1980s effect (thinner walls)
-    const WALL_THICKNESS = 8; // Thin walls
-    const WALL_OFFSET = (CELL_SIZE - WALL_THICKNESS) / 2;
-
+    // Draw maze walls with neon 1980s effect (solid walls)
     for (let y = 0; y < MAZE_HEIGHT; y++) {
       for (let x = 0; x < MAZE_WIDTH; x++) {
         if (maze[y][x]) {
-          const posX = x * CELL_SIZE + WALL_OFFSET;
-          const posY = y * CELL_SIZE + WALL_OFFSET;
+          const posX = x * CELL_SIZE;
+          const posY = y * CELL_SIZE;
 
-          // Neon wall with glow
-          ctx.fillStyle = "#ff00ff";
-          ctx.shadowBlur = 15;
+          // Outer glow for neon effect
+          ctx.shadowBlur = 20;
           ctx.shadowColor = "#ff00ff";
-          ctx.fillRect(posX, posY, WALL_THICKNESS, WALL_THICKNESS);
 
-          // Inner glow
+          // Main wall fill
+          ctx.fillStyle = "#ff00ff";
+          ctx.fillRect(posX, posY, CELL_SIZE, CELL_SIZE);
+
+          // Inner highlight for depth
           ctx.fillStyle = "#ff66ff";
+          ctx.shadowBlur = 10;
+          ctx.fillRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+
+          // Bright center highlight
+          ctx.fillStyle = "#ff99ff";
           ctx.shadowBlur = 5;
-          ctx.fillRect(
-            posX + 1,
-            posY + 1,
-            WALL_THICKNESS - 2,
-            WALL_THICKNESS - 2
-          );
+          ctx.fillRect(posX + 4, posY + 4, CELL_SIZE - 8, CELL_SIZE - 8);
 
           // Reset shadow
           ctx.shadowBlur = 0;
@@ -834,13 +1222,52 @@ export const GameCanvas = ({
 
       if (c.type === "computer") {
         const img = c.damaged ? sprites.computerDamaged : sprites.computer;
-        if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+        if (img) {
+          // Flash effect when damaged item is about to expire (after 2 seconds, 60 frames remaining)
+          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+            // Flash every 10 frames (fast blinking)
+            const flashAlpha =
+              Math.floor(c.damageTimer / 10) % 2 === 0 ? 0.3 : 1.0;
+            ctx.save();
+            ctx.globalAlpha = flashAlpha;
+          }
+          ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+            ctx.restore();
+          }
+        }
       } else if (c.type === "wall") {
         const img = c.damaged ? sprites.whiteboardPainted : sprites.whiteboard;
-        if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+        if (img) {
+          // Flash effect when damaged item is about to expire (after 2 seconds, 60 frames remaining)
+          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+            // Flash every 10 frames (fast blinking)
+            const flashAlpha =
+              Math.floor(c.damageTimer / 10) % 2 === 0 ? 0.3 : 1.0;
+            ctx.save();
+            ctx.globalAlpha = flashAlpha;
+          }
+          ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+            ctx.restore();
+          }
+        }
       } else if (c.type === "coworker") {
         const img = c.damaged ? sprites.coworkerPied : sprites.coworker;
-        if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+        if (img) {
+          // Flash effect when damaged item is about to expire (after 2 seconds, 60 frames remaining)
+          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+            // Flash every 10 frames (fast blinking)
+            const flashAlpha =
+              Math.floor(c.damageTimer / 10) % 2 === 0 ? 0.3 : 1.0;
+            ctx.save();
+            ctx.globalAlpha = flashAlpha;
+          }
+          ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+            ctx.restore();
+          }
+        }
       } else if (c.type === "coffee") {
         if (sprites.coffee)
           ctx.drawImage(
@@ -852,16 +1279,64 @@ export const GameCanvas = ({
           );
       } else if (c.type === "coin") {
         if (sprites.coin) {
+          // Calculate animated position if coin is still bouncing
+          let drawX = posX;
+          let drawY = posY;
+
+          if (
+            c.animationStartPos !== undefined &&
+            c.animationProgress !== undefined &&
+            c.animationProgress < 1
+          ) {
+            // Ease-out function for smooth deceleration
+            const easeOut = (t: number): number => {
+              return 1 - Math.pow(1 - t, 3);
+            };
+
+            const progress = easeOut(c.animationProgress);
+            const startX = c.animationStartPos.x * CELL_SIZE;
+            const startY = c.animationStartPos.y * CELL_SIZE;
+            const endX = c.position.x * CELL_SIZE;
+            const endY = c.position.y * CELL_SIZE;
+
+            // Calculate horizontal position (straight line interpolation)
+            drawX = startX + (endX - startX) * progress;
+
+            // Calculate vertical position with arc (parabolic trajectory)
+            // Arc height: goes up to 1.5 cells at the peak (middle of animation)
+            const arcHeight = CELL_SIZE * 1.5;
+            // Parabolic arc: y = -4h * t * (t - 1) where h is height and t is progress
+            // This creates an arc that starts at 0, peaks at 0.5, and ends at 0
+            const verticalOffset = -4 * arcHeight * progress * (progress - 1);
+
+            // Apply arc to vertical position
+            drawY = startY + (endY - startY) * progress - verticalOffset;
+          }
+
           // Make coin slightly smaller and animated
           const coinSize = CELL_SIZE * 0.8;
           const coinOffset = (CELL_SIZE - coinSize) / 2;
+
+          // Flash effect when coin is about to expire (after 2 seconds, 60 frames remaining)
+          if (c.expireTimer !== undefined && c.expireTimer < 60) {
+            // Flash every 10 frames (fast blinking)
+            const flashAlpha =
+              Math.floor(c.expireTimer / 10) % 2 === 0 ? 0.3 : 1.0;
+            ctx.save();
+            ctx.globalAlpha = flashAlpha;
+          }
+
           ctx.drawImage(
             sprites.coin,
-            posX + coinOffset,
-            posY + coinOffset,
+            drawX + coinOffset,
+            drawY + coinOffset,
             coinSize,
             coinSize
           );
+
+          if (c.expireTimer !== undefined && c.expireTimer < 60) {
+            ctx.restore();
+          }
         }
       }
     });
@@ -904,26 +1379,6 @@ export const GameCanvas = ({
 
       const img = exec.isScared ? sprites.executiveScared : sprites.executive;
       if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
-
-      // Speech bubble with neon arcade style
-      if (!exec.isScared) {
-        ctx.save();
-        // Dark background with neon border
-        ctx.fillStyle = "rgba(10, 10, 26, 0.95)";
-        ctx.fillRect(posX - 20, posY - 35, 80, 20);
-        ctx.strokeStyle = exec.color;
-        ctx.lineWidth = 2;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = exec.color;
-        ctx.strokeRect(posX - 20, posY - 35, 80, 20);
-        ctx.shadowBlur = 0;
-        // Neon text
-        ctx.fillStyle = exec.color;
-        ctx.font = "8px 'Press Start 2P'";
-        ctx.textAlign = "center";
-        ctx.fillText(exec.speech, posX + 20, posY - 22);
-        ctx.restore();
-      }
     });
 
     // Draw player sprite
@@ -966,16 +1421,25 @@ export const GameCanvas = ({
     sprites,
   ]);
 
+  // Make canvas focusable and auto-focus on mount
+  useEffect(() => {
+    if (canvasRef.current) {
+      canvasRef.current.focus();
+    }
+  }, []);
+
   return (
     <canvas
       ref={canvasRef}
       width={MAZE_WIDTH * CELL_SIZE}
       height={MAZE_HEIGHT * CELL_SIZE}
       className="w-full h-auto arcade-glow"
+      tabIndex={0}
       style={{
         background: "#0a0a1a",
         border: "3px solid #ff00ff",
         boxShadow: "0 0 20px #ff00ff",
+        outline: "none", // Remove focus outline
       }}
     />
   );
