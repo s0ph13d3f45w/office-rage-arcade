@@ -422,17 +422,17 @@ export const GameCanvas = ({
     );
 
     if (nearby) {
-      let coinValue = 5;
+      let coinValue = 1;
       let sound: string | null = null;
 
       if (nearby.type === "computer") {
-        coinValue = 8;
+        coinValue = 1;
         sound = "destroy";
       } else if (nearby.type === "wall") {
-        coinValue = 5;
+        coinValue = 1;
         sound = "graffiti";
       } else if (nearby.type === "coworker") {
-        coinValue = 10;
+        coinValue = 1;
         sound = "cake";
       } else if (nearby.type === "coffee") {
         // Power-up: collect it entirely (it disappears)
@@ -524,19 +524,96 @@ export const GameCanvas = ({
     }
 
     // Check for nearby executives to put kick-me sign
-    setExecutives((prev) =>
-      prev.map((exec) => {
+    setExecutives((prev) => {
+      const scaredExecutives: Executive[] = [];
+      const updated = prev.map((exec) => {
         if (
           !exec.isScared &&
           Math.abs(exec.position.x - currentPlayer.x) <= 1 &&
           Math.abs(exec.position.y - currentPlayer.y) <= 1
         ) {
           playSound("kickme");
+          scaredExecutives.push(exec); // Track which executives just got scared
           return { ...exec, isScared: true, scaredTimer: SCARED_DURATION };
         }
         return exec;
-      })
-    );
+      });
+
+      // Spawn 10 coins for each executive that just got scared
+      if (scaredExecutives.length > 0) {
+        scaredExecutives.forEach((exec) => {
+          // Find nearby walkable positions for coins
+          const findNearbyWalkablePositions = (
+            centerX: number,
+            centerY: number,
+            count: number
+          ): Position[] => {
+            const positions: Position[] = [];
+            const checked = new Set<string>();
+            const isWalkable = (x: number, y: number) => {
+              const gridX = Math.floor(x);
+              const gridY = Math.floor(y);
+              const key = `${gridX},${gridY}`;
+              if (checked.has(key)) return false;
+              checked.add(key);
+              return (
+                gridX >= 0 &&
+                gridX < MAZE_WIDTH &&
+                gridY >= 0 &&
+                gridY < MAZE_HEIGHT &&
+                !maze[gridY]?.[gridX] &&
+                // Check that no other collectible is already at this position
+                !currentCollectibles.some(
+                  (c) =>
+                    !c.collected &&
+                    c.position.x === gridX &&
+                    c.position.y === gridY
+                )
+              );
+            };
+
+            // Try positions in a larger area (5x5) around the executive for 10 coins
+            const candidates: Position[] = [];
+            for (let dy = -2; dy <= 2; dy++) {
+              for (let dx = -2; dx <= 2; dx++) {
+                const x = Math.floor(centerX) + dx;
+                const y = Math.floor(centerY) + dy;
+                if (isWalkable(x, y)) {
+                  candidates.push({ x, y });
+                }
+              }
+            }
+
+            // Shuffle and take up to count positions
+            const shuffled = candidates.sort(() => Math.random() - 0.5);
+            return shuffled.slice(0, Math.min(count, shuffled.length));
+          };
+
+          const coinPositions = findNearbyWalkablePositions(
+            exec.position.x,
+            exec.position.y,
+            10
+          );
+
+          // Create 10 coins with expire timers and bounce animation
+          const startPos = { x: exec.position.x, y: exec.position.y };
+          const newCoins = coinPositions.map((pos) => ({
+            position: pos, // Final position
+            type: "coin" as const,
+            collected: false,
+            value: 1,
+            expireTimer: 180, // 3 seconds at 60fps
+            animationStartPos: startPos, // Start animation from executive position
+            animationProgress: 0, // Start at 0, will animate to 1
+          }));
+
+          // Add the coins to collectibles
+          setCollectibles((prev) => [...prev, ...newCoins]);
+        });
+      }
+
+      return updated;
+    });
   }, []);
 
   // Store handleAction in ref
@@ -975,7 +1052,7 @@ export const GameCanvas = ({
             c.position.x === playerGX &&
             c.position.y === playerGY
           ) {
-            updateScore(c.value ?? 5);
+            updateScore(c.value ?? 1);
             playSound("coin");
             return { ...c, collected: true };
           }
