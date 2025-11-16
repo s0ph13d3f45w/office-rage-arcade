@@ -1,6 +1,11 @@
 import coffeeSprite from "@/assets/coffee-sprite.png";
 import coinSprite from "@/assets/coin-sprite.png";
 import coinSfx from "@/assets/coin.flac";
+import coffeeSfx from "@/assets/coffeemachine.flac";
+import computerDamageSfx from "@/assets/computer-damage.flac";
+import whiteboardPaintedSfx from "@/assets/whiteboard-painted.flac";
+import coworkerPiedSfx from "@/assets/coworker-pied.flac";
+import executiveWokeSfx from "@/assets/executive-woke-sound.mp3";
 import computerDamagedSprite from "@/assets/computer-damaged-sprite.png";
 import computerSprite from "@/assets/computer-sprite.png";
 import coworkerPiedSprite from "@/assets/coworker-pied-sprite.png";
@@ -25,6 +30,8 @@ interface Executive {
   scaredTimer: number;
   color: string;
   name: string;
+  // For normal movement: how many ticks to keep walking in the current direction
+  stepsRemaining?: number;
 }
 
 interface Collectible {
@@ -56,11 +63,13 @@ export const GameCanvas = ({
   updateScore,
   loseLife,
   togglePause,
+  soundEnabled,
 }: {
   gameState: GameState;
   updateScore: (points: number) => void;
   loseLife: () => void;
   togglePause: () => void;
+  soundEnabled: boolean;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Define player spawn position first - this will be excluded from wall generation
@@ -151,36 +160,28 @@ export const GameCanvas = ({
       .fill(0)
       .map(() => Array(MAZE_WIDTH).fill(false));
 
-    // Outer walls (but exclude player spawn row/column)
+    // Outer walls: solid 1-cell-thick border all the way around
     for (let x = 0; x < MAZE_WIDTH; x++) {
-      if (!isPlayerSpawnArea(x, 0)) {
-        m[0][x] = true;
-      }
-      if (!isPlayerSpawnArea(x, MAZE_HEIGHT - 1)) {
-        m[MAZE_HEIGHT - 1][x] = true;
-      }
+      m[0][x] = true;
+      m[MAZE_HEIGHT - 1][x] = true;
     }
     for (let y = 0; y < MAZE_HEIGHT; y++) {
-      if (!isPlayerSpawnArea(0, y)) {
-        m[y][0] = true;
-      }
-      if (!isPlayerSpawnArea(MAZE_WIDTH - 1, y)) {
-        m[y][MAZE_WIDTH - 1] = true;
-      }
+      m[y][0] = true;
+      m[y][MAZE_WIDTH - 1] = true;
     }
 
     // Internal maze walls
-    // To keep the maze less dense while using a higher-resolution grid,
-    // we generate a "coarse" maze at half resolution and then scale it up.
-    // This guarantees that all corridors are at least 2 blocks wide.
-    const COARSE_WIDTH = MAZE_WIDTH / 2;
-    const COARSE_HEIGHT = MAZE_HEIGHT / 2;
+    // We generate a "coarse" maze and then project it onto the full grid.
+    // Here we keep the coarse grid at the same resolution as the fine grid,
+    // and control sparsity via the step sizes in the loops below.
+    const COARSE_WIDTH = MAZE_WIDTH;
+    const COARSE_HEIGHT = MAZE_HEIGHT;
     const coarse: boolean[][] = Array(COARSE_HEIGHT)
       .fill(0)
       .map(() => Array(COARSE_WIDTH).fill(false));
 
-    const spawnCoarseX = PLAYER_SPAWN_X / 2;
-    const spawnCoarseY = PLAYER_SPAWN_Y / 2;
+    const spawnCoarseX = PLAYER_SPAWN_X;
+    const spawnCoarseY = PLAYER_SPAWN_Y;
     const isSpawnAreaCoarse = (x: number, y: number) => {
       return x === spawnCoarseX || y === spawnCoarseY;
     };
@@ -256,27 +257,332 @@ export const GameCanvas = ({
       }
     });
 
-    // Scale coarse maze to fine grid: each coarse wall becomes a 2x2 block.
-    for (let cy = 0; cy < COARSE_HEIGHT; cy++) {
-      for (let cx = 0; cx < COARSE_WIDTH; cx++) {
-        if (!coarse[cy][cx]) continue;
-        for (let dy = 0; dy < 2; dy++) {
-          for (let dx = 0; dx < 2; dx++) {
-            const fx = cx * 2 + dx;
-            const fy = cy * 2 + dy;
-            if (
-              fx >= 0 &&
-              fx < MAZE_WIDTH &&
-              fy >= 0 &&
-              fy < MAZE_HEIGHT &&
-              !isPlayerSpawnArea(fx, fy)
-            ) {
-              m[fy][fx] = true;
+    // At this point, coarse walls form continuous segments. To make the maze less dense
+    // without fragmenting walls into tiny pieces, remove every other *segment*
+    // (horizontal and vertical) while keeping each remaining segment intact.
+
+    // Remove every other horizontal wall segment (internal rows/columns only).
+    for (let y = 1; y < COARSE_HEIGHT - 1; y++) {
+      let segmentIndex = 0;
+      let runStart = -1;
+      for (let x = 1; x <= COARSE_WIDTH - 1; x++) {
+        const isWall = x < COARSE_WIDTH - 1 ? coarse[y][x] : false;
+        if (isWall) {
+          if (runStart === -1) runStart = x;
+        } else if (runStart !== -1) {
+          const runEnd = x - 1;
+          const length = runEnd - runStart + 1;
+          if (length > 1) {
+            // For every other continuous segment (1-based: keep 1st, drop 2nd, keep 3rd...)
+            if (segmentIndex % 2 === 1) {
+              for (let xx = runStart; xx <= runEnd; xx++) {
+                // Never touch outer border or spawn row/column
+                if (
+                  xx === 0 ||
+                  xx === COARSE_WIDTH - 1 ||
+                  y === 0 ||
+                  y === COARSE_HEIGHT - 1 ||
+                  isSpawnAreaCoarse(xx, y)
+                ) {
+                  continue;
+                }
+                coarse[y][xx] = false;
+              }
             }
+            segmentIndex++;
           }
+          runStart = -1;
         }
       }
     }
+
+    // Remove every other vertical wall segment (internal only).
+    for (let x = 1; x < COARSE_WIDTH - 1; x++) {
+      let segmentIndex = 0;
+      let runStart = -1;
+      for (let y = 1; y <= COARSE_HEIGHT - 1; y++) {
+        const isWall = y < COARSE_HEIGHT - 1 ? coarse[y][x] : false;
+        if (isWall) {
+          if (runStart === -1) runStart = y;
+        } else if (runStart !== -1) {
+          const runEnd = y - 1;
+          const length = runEnd - runStart + 1;
+          if (length > 1) {
+            if (segmentIndex % 2 === 1) {
+              for (let yy = runStart; yy <= runEnd; yy++) {
+                if (
+                  x === 0 ||
+                  x === COARSE_WIDTH - 1 ||
+                  yy === 0 ||
+                  yy === COARSE_HEIGHT - 1 ||
+                  isSpawnAreaCoarse(x, yy)
+                ) {
+                  continue;
+                }
+                coarse[yy][x] = false;
+              }
+            }
+            segmentIndex++;
+          }
+          runStart = -1;
+        }
+      }
+    }
+
+    // Scale coarse maze to fine grid: one coarse cell maps directly to one fine cell.
+    // This keeps all walls one-block thick in the coarse sense and makes internal walls line up cleanly.
+    for (let cy = 0; cy < COARSE_HEIGHT; cy++) {
+      for (let cx = 0; cx < COARSE_WIDTH; cx++) {
+        if (!coarse[cy][cx]) continue;
+        const fx = cx;
+        const fy = cy;
+        if (
+          fx >= 0 &&
+          fx < MAZE_WIDTH &&
+          fy >= 0 &&
+          fy < MAZE_HEIGHT &&
+          !isPlayerSpawnArea(fx, fy)
+        ) {
+          m[fy][fx] = true;
+        }
+      }
+    }
+
+    // Thin any "thick" internal walls: if we find a 2x2 block of walls, knock out one
+    // cell so that internal walls are at most 1 block thick visually.
+    for (let y = 1; y < MAZE_HEIGHT - 1; y++) {
+      for (let x = 1; x < MAZE_WIDTH - 1; x++) {
+        if (m[y][x] && m[y][x + 1] && m[y + 1][x] && m[y + 1][x + 1]) {
+          // Clear the bottom-right cell of this 2x2 wall block.
+          m[y + 1][x + 1] = false;
+        }
+      }
+    }
+
+    // Post-process: enforce that any open "corridor" along rows/columns is either
+    // completely blocked or at least 3 cells wide. Any open run of length 1–2
+    // is converted to walls so that sprites (~2.5x2.5 blocks) always have enough space,
+    // while still keeping the maze mostly open.
+
+    // Process rows
+    for (let y = 0; y < MAZE_HEIGHT; y++) {
+      let runStart = -1;
+      for (let x = 0; x <= MAZE_WIDTH; x++) {
+        const isOpen = x < MAZE_WIDTH ? !m[y][x] : false;
+        if (isOpen) {
+          if (runStart === -1) runStart = x;
+        } else if (runStart !== -1) {
+          const runEnd = x - 1;
+          const runLength = runEnd - runStart + 1;
+          if (runLength > 0 && runLength < 3) {
+            for (let rx = runStart; rx <= runEnd; rx++) {
+              // Keep the outer border untouched
+              if (
+                rx === 0 ||
+                rx === MAZE_WIDTH - 1 ||
+                y === 0 ||
+                y === MAZE_HEIGHT - 1
+              )
+                continue;
+              m[y][rx] = true;
+            }
+          }
+          runStart = -1;
+        }
+      }
+    }
+
+    // Process columns
+    for (let x = 0; x < MAZE_WIDTH; x++) {
+      let runStart = -1;
+      for (let y = 0; y <= MAZE_HEIGHT; y++) {
+        const isOpen = y < MAZE_HEIGHT ? !m[y][x] : false;
+        if (isOpen) {
+          if (runStart === -1) runStart = y;
+        } else if (runStart !== -1) {
+          const runEnd = y - 1;
+          const runLength = runEnd - runStart + 1;
+          if (runLength > 0 && runLength < 3) {
+            for (let ry = runStart; ry <= runEnd; ry++) {
+              if (
+                x === 0 ||
+                x === MAZE_WIDTH - 1 ||
+                ry === 0 ||
+                ry === MAZE_HEIGHT - 1
+              )
+                continue;
+              m[ry][x] = true;
+            }
+          }
+          runStart = -1;
+        }
+      }
+    }
+
+    // Ensure 3x3 open pockets in each corner (just inside the outer border)
+    // so executives can spawn there cleanly.
+    const clearCornerPocket = (startX: number, startY: number) => {
+      for (let y = startY; y < startY + 3 && y < MAZE_HEIGHT - 1; y++) {
+        for (let x = startX; x < startX + 3 && x < MAZE_WIDTH - 1; x++) {
+          if (x > 0 && x < MAZE_WIDTH - 1 && y > 0 && y < MAZE_HEIGHT - 1) {
+            m[y][x] = false;
+          }
+        }
+      }
+    };
+
+    // Top-left, top-right, bottom-left, bottom-right internal 3x3 pockets
+    clearCornerPocket(1, 1);
+    clearCornerPocket(MAZE_WIDTH - 4, 1);
+    clearCornerPocket(1, MAZE_HEIGHT - 4);
+    clearCornerPocket(MAZE_WIDTH - 4, MAZE_HEIGHT - 4);
+
+    // Make the spawn corridor a 3-block-wide "plus" centered on the player spawn.
+    // Vertical band: for every row, clear a 3-cell-wide strip around the spawn column,
+    // but don't punch through the outer border walls.
+    for (let y = 1; y < MAZE_HEIGHT - 1; y++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const xx = PLAYER_SPAWN_X + dx;
+        if (xx <= 0 || xx >= MAZE_WIDTH - 1) continue;
+        m[y][xx] = false;
+      }
+    }
+
+    // Horizontal band: for every column, clear a 3-cell-wide strip around the spawn row,
+    // again keeping the outer border intact.
+    for (let x = 1; x < MAZE_WIDTH - 1; x++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = PLAYER_SPAWN_Y + dy;
+        if (yy <= 0 || yy >= MAZE_HEIGHT - 1) continue;
+        m[yy][x] = false;
+      }
+    }
+
+    // Finally, ensure the walkable region is a single connected component:
+    // from the spawn you can reach every other open cell. We do this by:
+    // 1) BFS from the spawn to mark reachable cells.
+    // 2) If we find an open cell that's not reachable, carve a 3-wide L-shaped
+    //    corridor from that cell back to the spawn.
+    const inBounds = (x: number, y: number) =>
+      x > 0 && x < MAZE_WIDTH - 1 && y > 0 && y < MAZE_HEIGHT - 1;
+
+    const floodFillFromSpawn = (visited: boolean[][]) => {
+      for (let y = 0; y < MAZE_HEIGHT; y++) {
+        for (let x = 0; x < MAZE_WIDTH; x++) {
+          visited[y][x] = false;
+        }
+      }
+      const queue: Position[] = [];
+      if (!m[PLAYER_SPAWN_Y][PLAYER_SPAWN_X]) {
+        visited[PLAYER_SPAWN_Y][PLAYER_SPAWN_X] = true;
+        queue.push({ x: PLAYER_SPAWN_X, y: PLAYER_SPAWN_Y });
+      }
+      while (queue.length > 0) {
+        const { x, y } = queue.shift() as Position;
+        const neighbors = [
+          { x: x + 1, y },
+          { x: x - 1, y },
+          { x, y: y + 1 },
+          { x, y: y - 1 },
+        ];
+        for (const n of neighbors) {
+          if (inBounds(n.x, n.y) && !m[n.y][n.x] && !visited[n.y][n.x]) {
+            visited[n.y][n.x] = true;
+            queue.push(n);
+          }
+        }
+      }
+    };
+
+    const visited: boolean[][] = Array(MAZE_HEIGHT)
+      .fill(0)
+      .map(() => Array(MAZE_WIDTH).fill(false));
+
+    floodFillFromSpawn(visited);
+
+    // Look for any open cell not reachable from the spawn. For each disconnected
+    // region we find, carve a single 3-wide L-shaped corridor back to the spawn,
+    // then recompute connectivity. This avoids over-opening the maze.
+    // We only carve for the first cell in each disconnected component.
+    while (true) {
+      let start: Position | null = null;
+      for (let y = 1; y < MAZE_HEIGHT - 1 && !start; y++) {
+        for (let x = 1; x < MAZE_WIDTH - 1; x++) {
+          if (!m[y][x] && !visited[y][x]) {
+            start = { x, y };
+            break;
+          }
+        }
+      }
+
+      if (!start) {
+        break; // All open cells are connected to the spawn
+      }
+
+      // Carve a 3-wide corridor from this cell back to the spawn.
+      let cx = start.x;
+      let cy = start.y;
+
+      // Horizontal leg towards spawn column
+      const stepX = cx < PLAYER_SPAWN_X ? 1 : -1;
+      while (cx !== PLAYER_SPAWN_X) {
+        cx += stepX;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = cy + dy;
+          if (!inBounds(cx, yy)) continue;
+          m[yy][cx] = false;
+        }
+      }
+
+      // Vertical leg towards spawn row
+      const stepY = cy < PLAYER_SPAWN_Y ? 1 : -1;
+      while (cy !== PLAYER_SPAWN_Y) {
+        cy += stepY;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = PLAYER_SPAWN_X + dx;
+          if (!inBounds(xx, cy)) continue;
+          m[cy][xx] = false;
+        }
+      }
+
+      // Recompute connectivity after carving this corridor.
+      floodFillFromSpawn(visited);
+    }
+
+    // Additionally, explicitly carve 3-wide L-shaped corridors from each
+    // executive's starting corner area to the spawn, so every executive
+    // has a guaranteed wide path to the centre.
+    const carveCornerToSpawn = (startX: number, startY: number) => {
+      let cx = startX;
+      let cy = startY;
+
+      // Horizontal leg towards spawn column
+      const stepX = cx < PLAYER_SPAWN_X ? 1 : cx > PLAYER_SPAWN_X ? -1 : 0;
+      while (cx !== PLAYER_SPAWN_X) {
+        cx += stepX;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = cy + dy;
+          if (!inBounds(cx, yy)) continue;
+          m[yy][cx] = false;
+        }
+      }
+
+      // Vertical leg towards spawn row
+      const stepY = cy < PLAYER_SPAWN_Y ? 1 : cy > PLAYER_SPAWN_Y ? -1 : 0;
+      while (cy !== PLAYER_SPAWN_Y) {
+        cy += stepY;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = PLAYER_SPAWN_X + dx;
+          if (!inBounds(xx, cy)) continue;
+          m[cy][xx] = false;
+        }
+      }
+    };
+
+    carveCornerToSpawn(2, 2);
+    carveCornerToSpawn(MAZE_WIDTH - 3, 2);
+    carveCornerToSpawn(2, MAZE_HEIGHT - 3);
+    carveCornerToSpawn(MAZE_WIDTH - 3, MAZE_HEIGHT - 3);
 
     // Ensure player spawn position itself is never a wall
     m[PLAYER_SPAWN_Y][PLAYER_SPAWN_X] = false;
@@ -285,12 +591,12 @@ export const GameCanvas = ({
   });
 
   const [executives, setExecutives] = useState<Executive[]>(() => {
-    // Helper to check if an executive sprite (2x2 blocks) is walkable
+    // Helper to check if an executive sprite (~2.5x2.5 blocks) is walkable
     const isWalkable = (x: number, y: number) => {
-      const SPRITE_LEFT_OFFSET = 0.5;
-      const SPRITE_RIGHT_OFFSET = 1.5;
-      const SPRITE_TOP_OFFSET = 0.5;
-      const SPRITE_BOTTOM_OFFSET = 1.5;
+      const SPRITE_LEFT_OFFSET = 0.75;
+      const SPRITE_RIGHT_OFFSET = 1.75;
+      const SPRITE_TOP_OFFSET = 0.75;
+      const SPRITE_BOTTOM_OFFSET = 1.75;
 
       const leftBound = x - SPRITE_LEFT_OFFSET;
       const rightBound = x + SPRITE_RIGHT_OFFSET;
@@ -388,13 +694,13 @@ export const GameCanvas = ({
 
   const [collectibles, setCollectibles] = useState<Collectible[]>(() => {
     const items: Collectible[] = [];
-    // Helper to check if a static collectible sprite (2x2 blocks) is clear of walls
+    // Helper to check if a static collectible sprite (~2.5x2.5 blocks) is clear of walls
     // AND does not overlap any existing non-coin collectibles.
     const isWalkable = (x: number, y: number) => {
-      const SPRITE_LEFT_OFFSET = 0.5;
-      const SPRITE_RIGHT_OFFSET = 1.5;
-      const SPRITE_TOP_OFFSET = 0.5;
-      const SPRITE_BOTTOM_OFFSET = 1.5;
+      const SPRITE_LEFT_OFFSET = 0.75;
+      const SPRITE_RIGHT_OFFSET = 1.75;
+      const SPRITE_TOP_OFFSET = 0.75;
+      const SPRITE_BOTTOM_OFFSET = 1.75;
 
       const leftA = x - SPRITE_LEFT_OFFSET;
       const rightA = x + SPRITE_RIGHT_OFFSET;
@@ -493,6 +799,90 @@ export const GameCanvas = ({
       collected: false,
     });
 
+    // Ensure every collectible is reachable from the centre with a 2.5x2.5 sprite.
+    // We do a BFS using the same collision box as the player/executives, ignoring
+    // collectibles themselves, then relocate any item that isn't on a reachable tile.
+    const SPRITE_LEFT_OFFSET = 0.75;
+    const SPRITE_RIGHT_OFFSET = 1.75;
+    const SPRITE_TOP_OFFSET = 0.75;
+    const SPRITE_BOTTOM_OFFSET = 1.75;
+
+    const canSpriteStand = (x: number, y: number) => {
+      const left = x - SPRITE_LEFT_OFFSET;
+      const right = x + SPRITE_RIGHT_OFFSET;
+      const top = y - SPRITE_TOP_OFFSET;
+      const bottom = y + SPRITE_BOTTOM_OFFSET;
+
+      const minGridX = Math.max(0, Math.floor(left));
+      const maxGridX = Math.min(MAZE_WIDTH - 1, Math.floor(right));
+      const minGridY = Math.max(0, Math.floor(top));
+      const maxGridY = Math.min(MAZE_HEIGHT - 1, Math.floor(bottom));
+
+      for (let gy = minGridY; gy <= maxGridY; gy++) {
+        for (let gx = minGridX; gx <= maxGridX; gx++) {
+          if (maze[gy][gx]) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+
+    const reachable: boolean[][] = Array(MAZE_HEIGHT)
+      .fill(0)
+      .map(() => Array(MAZE_WIDTH).fill(false));
+
+    const queue: Position[] = [];
+    if (canSpriteStand(PLAYER_SPAWN_X, PLAYER_SPAWN_Y)) {
+      reachable[PLAYER_SPAWN_Y][PLAYER_SPAWN_X] = true;
+      queue.push({ x: PLAYER_SPAWN_X, y: PLAYER_SPAWN_Y });
+    }
+
+    while (queue.length > 0) {
+      const { x, y } = queue.shift() as Position;
+      const neighbors = [
+        { x: x + 1, y },
+        { x: x - 1, y },
+        { x, y: y + 1 },
+        { x, y: y - 1 },
+      ];
+      for (const n of neighbors) {
+        if (
+          n.x > 0 &&
+          n.x < MAZE_WIDTH - 1 &&
+          n.y > 0 &&
+          n.y < MAZE_HEIGHT - 1 &&
+          !reachable[n.y][n.x] &&
+          canSpriteStand(n.x, n.y)
+        ) {
+          reachable[n.y][n.x] = true;
+          queue.push(n);
+        }
+      }
+    }
+
+    // Relocate any unreachable collectible to a random reachable, walkable tile.
+    for (const item of items) {
+      const { x, y } = item.position;
+      if (
+        y < 0 ||
+        y >= MAZE_HEIGHT ||
+        x < 0 ||
+        x >= MAZE_WIDTH ||
+        !reachable[y][x]
+      ) {
+        // Try up to 100 random reachable positions
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const rx = 1 + Math.floor(Math.random() * (MAZE_WIDTH - 2));
+          const ry = 1 + Math.floor(Math.random() * (MAZE_HEIGHT - 2));
+          if (reachable[ry][rx] && isWalkable(rx, ry)) {
+            item.position = { x: rx, y: ry };
+            break;
+          }
+        }
+      }
+    }
+
     return items;
   });
 
@@ -501,6 +891,10 @@ export const GameCanvas = ({
   const playerRef = useRef<Position>({ x: PLAYER_SPAWN_X, y: PLAYER_SPAWN_Y });
   const togglePauseRef = useRef(togglePause);
   const handleActionRef = useRef<() => void>();
+
+  // Level banner state (in refs so we can drive it from the game loop)
+  const levelBannerTimerRef = useRef(0);
+  const levelBannerLevelRef = useRef<number | null>(null);
 
   // Keep refs in sync with state and props
   useEffect(() => {
@@ -522,6 +916,13 @@ export const GameCanvas = ({
       typeof togglePause === "function"
     );
   }, [togglePause]);
+
+  // Trigger a short-lived "LEVEL X" banner whenever the level changes
+  useEffect(() => {
+    if (gameState.level <= 0) return;
+    levelBannerLevelRef.current = gameState.level;
+    levelBannerTimerRef.current = 90; // ~1.5 seconds at 60fps
+  }, [gameState.level]);
 
   const handleAction = useCallback(() => {
     // Check for nearby collectibles (damage/modify instead of destroy -> spawn a coin)
@@ -553,7 +954,7 @@ export const GameCanvas = ({
       } else if (nearby.type === "coffee") {
         // Power-up: collect it entirely (it disappears)
         setSpeedBoost(SPEED_BOOST_DURATION);
-        sound = "powerup";
+        playSound("powerup");
         setCollectibles((prev) =>
           prev.map((c) => (c === nearby ? { ...c, collected: true } : c))
         );
@@ -794,16 +1195,169 @@ export const GameCanvas = ({
     }
   }, []);
 
+  // Small audio pools for sounds so they start immediately and can overlap
+  const coinAudioPoolRef = useRef<HTMLAudioElement[]>([]);
+  const coinAudioIndexRef = useRef(0);
+  const coffeeAudioPoolRef = useRef<HTMLAudioElement[]>([]);
+  const coffeeAudioIndexRef = useRef(0);
+  const computerAudioPoolRef = useRef<HTMLAudioElement[]>([]);
+  const computerAudioIndexRef = useRef(0);
+  const whiteboardAudioPoolRef = useRef<HTMLAudioElement[]>([]);
+  const whiteboardAudioIndexRef = useRef(0);
+  const coworkerAudioPoolRef = useRef<HTMLAudioElement[]>([]);
+  const coworkerAudioIndexRef = useRef(0);
+  const executiveAudioPoolRef = useRef<HTMLAudioElement[]>([]);
+  const executiveAudioIndexRef = useRef(0);
+
+  useEffect(() => {
+    const poolSize = 6;
+
+    const makePool = (src: string) => {
+      const pool: HTMLAudioElement[] = [];
+      for (let i = 0; i < poolSize; i++) {
+        const audio = new Audio(src);
+        audio.preload = "auto";
+        audio.load();
+        pool.push(audio);
+      }
+      return pool;
+    };
+
+    coinAudioPoolRef.current = makePool(coinSfx);
+    coffeeAudioPoolRef.current = makePool(coffeeSfx);
+    computerAudioPoolRef.current = makePool(computerDamageSfx);
+    whiteboardAudioPoolRef.current = makePool(whiteboardPaintedSfx);
+    coworkerAudioPoolRef.current = makePool(coworkerPiedSfx);
+    executiveAudioPoolRef.current = makePool(executiveWokeSfx);
+  }, []);
+
   const playSound = (type: string) => {
+    if (!soundEnabled) return;
+
     if (type === "coin") {
-      // Play coin collection sound; allow overlapping playback by using a fresh Audio instance
       try {
-        const audio = new Audio(coinSfx);
+        const pool = coinAudioPoolRef.current;
+        if (pool.length === 0) {
+          // Fallback: single-shot audio if pool hasn't loaded yet
+          const audio = new Audio(coinSfx);
+          audio.volume = 1.0;
+          audio.playbackRate = 2.0;
+          void audio.play();
+          return;
+        }
+
+        const index = coinAudioIndexRef.current;
+        coinAudioIndexRef.current = (index + 1) % pool.length;
+
+        const audio = pool[index];
+        // Reset this instance without affecting others in the pool
+        audio.pause();
+        audio.currentTime = 0;
         audio.volume = 1.0;
         audio.playbackRate = 2.0; // keep the snappy/double-speed feel
         void audio.play();
       } catch (err) {
         console.error("Error playing coin sound:", err);
+      }
+    } else if (type === "powerup") {
+      // Coffee machine sound when collecting a coffee power-up
+      try {
+        const pool = coffeeAudioPoolRef.current;
+        if (pool.length === 0) {
+          const audio = new Audio(coffeeSfx);
+          audio.volume = 1.0;
+          void audio.play();
+          return;
+        }
+        const index = coffeeAudioIndexRef.current;
+        coffeeAudioIndexRef.current = (index + 1) % pool.length;
+        const audio = pool[index];
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1.0;
+        void audio.play();
+      } catch (err) {
+        console.error("Error playing coffee machine sound:", err);
+      }
+    } else if (type === "destroy") {
+      // Computer damage sound when smashing a computer
+      try {
+        const pool = computerAudioPoolRef.current;
+        if (pool.length === 0) {
+          const audio = new Audio(computerDamageSfx);
+          audio.volume = 1.0;
+          void audio.play();
+          return;
+        }
+        const index = computerAudioIndexRef.current;
+        computerAudioIndexRef.current = (index + 1) % pool.length;
+        const audio = pool[index];
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1.0;
+        void audio.play();
+      } catch (err) {
+        console.error("Error playing computer damage sound:", err);
+      }
+    } else if (type === "graffiti") {
+      // Whiteboard painted sound when tagging a whiteboard
+      try {
+        const pool = whiteboardAudioPoolRef.current;
+        if (pool.length === 0) {
+          const audio = new Audio(whiteboardPaintedSfx);
+          audio.volume = 1.0;
+          void audio.play();
+          return;
+        }
+        const index = whiteboardAudioIndexRef.current;
+        whiteboardAudioIndexRef.current = (index + 1) % pool.length;
+        const audio = pool[index];
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1.0;
+        void audio.play();
+      } catch (err) {
+        console.error("Error playing whiteboard painted sound:", err);
+      }
+    } else if (type === "cake") {
+      // Coworker pied sound when hitting a coworker
+      try {
+        const pool = coworkerAudioPoolRef.current;
+        if (pool.length === 0) {
+          const audio = new Audio(coworkerPiedSfx);
+          audio.volume = 1.0;
+          void audio.play();
+          return;
+        }
+        const index = coworkerAudioIndexRef.current;
+        coworkerAudioIndexRef.current = (index + 1) % pool.length;
+        const audio = pool[index];
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1.0;
+        void audio.play();
+      } catch (err) {
+        console.error("Error playing coworker pied sound:", err);
+      }
+    } else if (type === "kickme") {
+      // Executive "woke" sound when an executive becomes scared
+      try {
+        const pool = executiveAudioPoolRef.current;
+        if (pool.length === 0) {
+          const audio = new Audio(executiveWokeSfx);
+          audio.volume = 1.0;
+          void audio.play();
+          return;
+        }
+        const index = executiveAudioIndexRef.current;
+        executiveAudioIndexRef.current = (index + 1) % pool.length;
+        const audio = pool[index];
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 1.0;
+        void audio.play();
+      } catch (err) {
+        console.error("Error playing executive woke sound:", err);
       }
     } else {
       // Keep logging other sound events for now
@@ -829,12 +1383,12 @@ export const GameCanvas = ({
         setPlayerDirection({ x: dx, y: dy });
         setPlayer((prev) => {
           // Match collision box to the drawn player sprite (green debug rectangle).
-          // Sprite is 2x2 blocks and centered on the player position:
-          // it extends 0.5 blocks to the left/top and 1.5 blocks to the right/bottom.
-          const SPRITE_LEFT_OFFSET = 0.5;
-          const SPRITE_RIGHT_OFFSET = 1.5;
-          const SPRITE_TOP_OFFSET = 0.5;
-          const SPRITE_BOTTOM_OFFSET = 1.5;
+          // Sprite is ~2.5x2.5 blocks and centered on the player position:
+          // it extends 0.75 blocks to the left/top and 1.75 blocks to the right/bottom.
+          const SPRITE_LEFT_OFFSET = 0.75;
+          const SPRITE_RIGHT_OFFSET = 1.75;
+          const SPRITE_TOP_OFFSET = 0.75;
+          const SPRITE_BOTTOM_OFFSET = 1.75;
 
           // Check if the sprite at this position would overlap any walls
           const canMoveTo = (x: number, y: number) => {
@@ -911,11 +1465,11 @@ export const GameCanvas = ({
       // Update executives
       setExecutives((prev) =>
         prev.map((exec) => {
-          // Collision helper: match executive sprite (2x2 blocks, centered)
-          const SPRITE_LEFT_OFFSET = 0.5;
-          const SPRITE_RIGHT_OFFSET = 1.5;
-          const SPRITE_TOP_OFFSET = 0.5;
-          const SPRITE_BOTTOM_OFFSET = 1.5;
+          // Collision helper: match executive sprite (~2.5x2.5 blocks, centered)
+          const SPRITE_LEFT_OFFSET = 0.75;
+          const SPRITE_RIGHT_OFFSET = 1.75;
+          const SPRITE_TOP_OFFSET = 0.75;
+          const SPRITE_BOTTOM_OFFSET = 1.75;
 
           const canExecMoveTo = (x: number, y: number) => {
             const leftBound = x - SPRITE_LEFT_OFFSET;
@@ -966,52 +1520,87 @@ export const GameCanvas = ({
               position: newPos,
               scaredTimer: exec.scaredTimer - 1,
               isScared: exec.scaredTimer - 1 > 0,
+              // When scared, forget any normal-movement commitment so we'll
+              // choose a fresh direction once calm again.
+              stepsRemaining: 0,
             };
           }
 
           // Normal AI movement with vision cone
-          const baseSpeed = EXECUTIVE_BASE_SPEED + gameState.level * 0.01; // Reduced level scaling
+          // Make executives move ~30% faster per level (multiplicative scaling)
+          const baseSpeed =
+            EXECUTIVE_BASE_SPEED *
+            Math.pow(1.3, Math.max(0, gameState.level - 1));
 
           if (Math.random() < baseSpeed) {
-            // Less erratic movement
-            if (Math.random() < 0.02) {
+            const step = 0.5;
+            let { direction, stepsRemaining = 0 } = exec;
+
+            // If we've exhausted our commitment to the current direction,
+            // choose a new one that is actually walkable.
+            if (stepsRemaining <= 0) {
               const directions = [
                 { x: 1, y: 0 },
                 { x: -1, y: 0 },
                 { x: 0, y: 1 },
                 { x: 0, y: -1 },
               ];
-              exec.direction =
-                directions[Math.floor(Math.random() * directions.length)];
-            }
+              // Shuffle directions so choices feel varied
+              for (let i = directions.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const tmp = directions[i];
+                directions[i] = directions[j];
+                directions[j] = tmp;
+              }
 
-            const step = 0.5;
-            const candidateDirs = [
-              exec.direction,
-              // Perpendicular alternatives
-              exec.direction.x !== 0 ? { x: 0, y: 1 } : { x: 1, y: 0 },
-              exec.direction.x !== 0 ? { x: 0, y: -1 } : { x: -1, y: 0 },
-              // Opposite direction as last resort
-              { x: -exec.direction.x, y: -exec.direction.y },
-            ];
+              let chosenDir: Position | null = null;
+              for (const dir of directions) {
+                const testX = exec.position.x + dir.x * step;
+                const testY = exec.position.y + dir.y * step;
+                if (
+                  testX >= SPRITE_LEFT_OFFSET &&
+                  testX <= MAZE_WIDTH - SPRITE_RIGHT_OFFSET &&
+                  testY >= SPRITE_TOP_OFFSET &&
+                  testY <= MAZE_HEIGHT - SPRITE_BOTTOM_OFFSET &&
+                  canExecMoveTo(testX, testY)
+                ) {
+                  chosenDir = dir;
+                  break;
+                }
+              }
 
-            for (const dir of candidateDirs) {
-              const newX = exec.position.x + dir.x * step;
-              const newY = exec.position.y + dir.y * step;
-              if (
-                newX >= SPRITE_LEFT_OFFSET &&
-                newX <= MAZE_WIDTH - SPRITE_RIGHT_OFFSET &&
-                newY >= SPRITE_TOP_OFFSET &&
-                newY <= MAZE_HEIGHT - SPRITE_BOTTOM_OFFSET &&
-                canExecMoveTo(newX, newY)
-              ) {
-                return {
-                  ...exec,
-                  position: { x: newX, y: newY },
-                  direction: dir,
-                };
+              if (chosenDir) {
+                direction = chosenDir;
+                stepsRemaining = 15; // commit to this direction for at least 15 ticks
+              } else {
+                // No valid direction this tick
+                return exec;
               }
             }
+
+            // Try to move one step in the committed direction
+            const newX = exec.position.x + direction.x * step;
+            const newY = exec.position.y + direction.y * step;
+            if (
+              newX >= SPRITE_LEFT_OFFSET &&
+              newX <= MAZE_WIDTH - SPRITE_RIGHT_OFFSET &&
+              newY >= SPRITE_TOP_OFFSET &&
+              newY <= MAZE_HEIGHT - SPRITE_BOTTOM_OFFSET &&
+              canExecMoveTo(newX, newY)
+            ) {
+              return {
+                ...exec,
+                position: { x: newX, y: newY },
+                direction,
+                stepsRemaining: stepsRemaining - 1,
+              };
+            }
+
+            // If blocked unexpectedly, force a new choice next tick
+            return {
+              ...exec,
+              stepsRemaining: 0,
+            };
           }
 
           return exec;
@@ -1132,10 +1721,10 @@ export const GameCanvas = ({
             ): Position | null => {
               const checked = new Set<string>();
               const isWalkable = (x: number, y: number) => {
-                const SPRITE_LEFT_OFFSET = 0.5;
-                const SPRITE_RIGHT_OFFSET = 1.5;
-                const SPRITE_TOP_OFFSET = 0.5;
-                const SPRITE_BOTTOM_OFFSET = 1.5;
+                const SPRITE_LEFT_OFFSET = 0.75;
+                const SPRITE_RIGHT_OFFSET = 1.75;
+                const SPRITE_TOP_OFFSET = 0.75;
+                const SPRITE_BOTTOM_OFFSET = 1.75;
 
                 const gridX = Math.floor(x);
                 const gridY = Math.floor(y);
@@ -1297,8 +1886,15 @@ export const GameCanvas = ({
         });
 
         if (coinsCollectedThisFrame > 0) {
-          const POP_DELAY_MS = 60; // slight delay so multiple pops don't start at the exact same time
-          for (let i = 0; i < coinsCollectedThisFrame; i++) {
+          const POP_DELAY_MS = 120; // stagger by ~2 frames so multiple pops are clearly sequential
+
+          // Play the first coin sound immediately so it fires exactly when the
+          // coin is captured, with no perceived delay.
+          playSound("coin");
+
+          // For any additional coins collected in the same frame, stagger their
+          // sounds slightly so they don't stack perfectly on top of each other.
+          for (let i = 1; i < coinsCollectedThisFrame; i++) {
             setTimeout(() => {
               playSound("coin");
             }, i * POP_DELAY_MS);
@@ -1447,6 +2043,11 @@ export const GameCanvas = ({
           }
         });
       }
+
+      // Tick down the level banner timer so the "LEVEL X" sign fades out
+      if (levelBannerTimerRef.current > 0) {
+        levelBannerTimerRef.current -= 1;
+      }
     }, 1000 / 60); // 60 FPS
 
     return () => clearInterval(gameLoop);
@@ -1512,14 +2113,6 @@ export const GameCanvas = ({
           ctx.shadowBlur = 5;
           ctx.fillRect(posX + 4, posY + 4, CELL_SIZE - 8, CELL_SIZE - 8);
 
-          // Debug: bright yellow boundary around wall tile
-          ctx.save();
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = "#ffff00";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(posX, posY, CELL_SIZE, CELL_SIZE);
-          ctx.restore();
-
           // Reset shadow
           ctx.shadowBlur = 0;
         }
@@ -1560,7 +2153,7 @@ export const GameCanvas = ({
 
       const posX = c.position.x * CELL_SIZE;
       const posY = c.position.y * CELL_SIZE;
-      const spriteSize = CELL_SIZE * 2; // Width equivalent to two blocks
+      const spriteSize = CELL_SIZE * 2.5; // Width equivalent to 2.5 blocks
       const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
       const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
@@ -1578,13 +2171,6 @@ export const GameCanvas = ({
             flashed = true;
           }
           ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
-
-          // Purple debug boundary around computer
-          ctx.save();
-          ctx.strokeStyle = "#bf5fff"; // bright purple
-          ctx.lineWidth = 2;
-          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
-          ctx.restore();
 
           if (flashed) {
             ctx.restore();
@@ -1605,13 +2191,6 @@ export const GameCanvas = ({
           }
           ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
 
-          // Purple debug boundary around whiteboard
-          ctx.save();
-          ctx.strokeStyle = "#bf5fff";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
-          ctx.restore();
-
           if (flashed) {
             ctx.restore();
           }
@@ -1631,13 +2210,6 @@ export const GameCanvas = ({
           }
           ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
 
-          // Purple debug boundary around coworker
-          ctx.save();
-          ctx.strokeStyle = "#bf5fff";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
-          ctx.restore();
-
           if (flashed) {
             ctx.restore();
           }
@@ -1651,13 +2223,6 @@ export const GameCanvas = ({
             spriteSize,
             spriteSize
           );
-
-          // Purple debug boundary around coffee machine
-          ctx.save();
-          ctx.strokeStyle = "#bf5fff";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
-          ctx.restore();
         }
       } else if (c.type === "coin") {
         if (sprites.coin) {
@@ -1768,56 +2333,79 @@ export const GameCanvas = ({
     // Draw executives with vision cones using sprites
     executives.forEach((exec) => {
       if (!exec.isScared) {
-        // Draw vision cone
+        // Draw vision "cone": triangular beam plus an elliptical cap at the far edge
         ctx.save();
         ctx.globalAlpha = 0.2;
         ctx.fillStyle = exec.color;
-        ctx.beginPath();
+
         const startX = exec.position.x * CELL_SIZE + CELL_SIZE / 2;
         const startY = exec.position.y * CELL_SIZE + CELL_SIZE / 2;
-        ctx.moveTo(startX, startY);
-
         const angle = Math.atan2(exec.direction.y, exec.direction.x);
-        const coneAngle = Math.PI / 6; // Narrower 30-degree cone
+        const coneAngle = Math.PI / 6; // 30-degree beam
         const coneLength = VISION_DISTANCE * CELL_SIZE;
 
-        ctx.lineTo(
-          startX + Math.cos(angle - coneAngle) * coneLength,
-          startY + Math.sin(angle - coneAngle) * coneLength
-        );
-        ctx.lineTo(
-          startX + Math.cos(angle + coneAngle) * coneLength,
-          startY + Math.sin(angle + coneAngle) * coneLength
-        );
+        // Compute the two outer tips of the beam
+        const tipX1 = startX + Math.cos(angle - coneAngle) * coneLength;
+        const tipY1 = startY + Math.sin(angle - coneAngle) * coneLength;
+        const tipX2 = startX + Math.cos(angle + coneAngle) * coneLength;
+        const tipY2 = startY + Math.sin(angle + coneAngle) * coneLength;
+
+        // Build a single path that includes the beam and a rounded "cap"
+        // so we only fill once and transparency stays consistent.
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(tipX1, tipY1);
+
+        // Rounded cap: approximate a half-ellipse using a quadratic curve from tip1 to tip2.
+        const baseDX = tipX2 - tipX1;
+        const baseDY = tipY2 - tipY1;
+        const baseLen = Math.hypot(baseDX, baseDY) || 1;
+        const ux = baseDX / baseLen;
+        const uy = baseDY / baseLen;
+
+        const midTipX = (tipX1 + tipX2) / 2;
+        const midTipY = (tipY1 + tipY2) / 2;
+
+        // Normal pointing roughly "outwards" from the triangle (away from the executive)
+        let normalX = -uy;
+        let normalY = ux;
+        const fromMidToStartX = startX - midTipX;
+        const fromMidToStartY = startY - midTipY;
+        const dot = normalX * fromMidToStartX + normalY * fromMidToStartY;
+        if (dot > 0) {
+          // Flip so the rounded cap goes on the opposite side of the triangle
+          normalX = -normalX;
+          normalY = -normalY;
+        }
+
+        const capHeight = coneLength * Math.sin(coneAngle); // how "tall" the cap bulges out
+        const controlX = midTipX + normalX * capHeight;
+        const controlY = midTipY + normalY * capHeight;
+
+        ctx.quadraticCurveTo(controlX, controlY, tipX2, tipY2);
         ctx.closePath();
         ctx.fill();
+
         ctx.restore();
       }
 
-      // Draw executive sprite (width equivalent to two blocks)
+      // Draw executive sprite (width equivalent to 2.5 blocks)
       const posX = exec.position.x * CELL_SIZE;
       const posY = exec.position.y * CELL_SIZE;
-      const spriteSize = CELL_SIZE * 2;
+      const spriteSize = CELL_SIZE * 2.5;
       const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
       const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
       const img = exec.isScared ? sprites.executiveScared : sprites.executive;
       if (img) {
         ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
-
-        // Debug: bright green boundary around executive sprite
-        ctx.save();
-        ctx.strokeStyle = "#00ff00";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
-        ctx.restore();
       }
     });
 
-    // Draw player sprite (width equivalent to two blocks)
+    // Draw player sprite (width equivalent to 2.5 blocks)
     const posX = player.x * CELL_SIZE;
     const posY = player.y * CELL_SIZE;
-    const spriteSize = CELL_SIZE * 2;
+    const spriteSize = CELL_SIZE * 2.5;
     const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
     const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
@@ -1840,18 +2428,55 @@ export const GameCanvas = ({
 
     if (sprites.player) {
       ctx.drawImage(sprites.player, offsetX, offsetY, spriteSize, spriteSize);
-
-      // Debug: bright green boundary around player sprite
-      ctx.save();
-      ctx.strokeStyle = "#00ff00";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
-      ctx.restore();
     }
 
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     ctx.restore();
+
+    // Draw transient "LEVEL X" banner in the centre when a new level starts
+    if (canvasRef.current && levelBannerTimerRef.current > 0) {
+      const bannerLevel = levelBannerLevelRef.current;
+      if (bannerLevel !== null) {
+        const canvas = canvasRef.current;
+        const t = levelBannerTimerRef.current / 90; // 0..1 over banner lifetime
+        const alpha = Math.min(1, t * 2); // fade in quickly, then out
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.9;
+        ctx.fillStyle = "rgba(10, 10, 26, 0.85)";
+        const bannerWidth = CELL_SIZE * 10;
+        const bannerHeight = CELL_SIZE * 3;
+        ctx.fillRect(
+          centerX - bannerWidth / 2,
+          centerY - bannerHeight / 2,
+          bannerWidth,
+          bannerHeight
+        );
+
+        ctx.strokeStyle = "#ff6ad5";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(
+          centerX - bannerWidth / 2,
+          centerY - bannerHeight / 2,
+          bannerWidth,
+          bannerHeight
+        );
+
+        ctx.fillStyle = "#00ffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `${
+          CELL_SIZE * 1.2
+        }px "Press Start 2P", system-ui, sans-serif`;
+        ctx.fillText(`LEVEL ${bannerLevel}`, centerX, centerY);
+
+        ctx.restore();
+      }
+    }
   }, [
     player,
     executives,
