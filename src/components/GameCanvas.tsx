@@ -1,5 +1,6 @@
 import coffeeSprite from "@/assets/coffee-sprite.png";
 import coinSprite from "@/assets/coin-sprite.png";
+import coinSfx from "@/assets/coin.flac";
 import computerDamagedSprite from "@/assets/computer-damaged-sprite.png";
 import computerSprite from "@/assets/computer-sprite.png";
 import coworkerPiedSprite from "@/assets/coworker-pied-sprite.png";
@@ -794,8 +795,20 @@ export const GameCanvas = ({
   }, []);
 
   const playSound = (type: string) => {
-    // Placeholder for sound effects
-    console.log(`Playing sound: ${type}`);
+    if (type === "coin") {
+      // Play coin collection sound; allow overlapping playback by using a fresh Audio instance
+      try {
+        const audio = new Audio(coinSfx);
+        audio.volume = 1.0;
+        audio.playbackRate = 2.0; // keep the snappy/double-speed feel
+        void audio.play();
+      } catch (err) {
+        console.error("Error playing coin sound:", err);
+      }
+    } else {
+      // Keep logging other sound events for now
+      console.log(`Playing sound: ${type}`);
+    }
   };
 
   useEffect(() => {
@@ -1233,9 +1246,12 @@ export const GameCanvas = ({
       });
 
       // Collect coins when they touch the player's bounding box (green rectangle)
-      // but only after they have finished their bounce animation (landed).
-      setCollectibles((prev) =>
-        prev.map((c) => {
+      // but only after they have finished their bounce-up animation (landed).
+      // If multiple coins are collected on the same frame, play their sounds staggered.
+      setCollectibles((prev) => {
+        let coinsCollectedThisFrame = 0;
+
+        const next = prev.map((c) => {
           if (c.type !== "coin" || c.collected) return c;
 
           // Skip coins that are still bouncing toward their landing tile
@@ -1267,8 +1283,8 @@ export const GameCanvas = ({
           const overlapY = playerTop < coinBottom && playerBottom > coinTop;
 
           if (overlapX && overlapY) {
+            coinsCollectedThisFrame += 1;
             updateScore(c.value ?? 1);
-            playSound("coin");
             return {
               ...c,
               collected: true,
@@ -1278,8 +1294,19 @@ export const GameCanvas = ({
           }
 
           return c;
-        })
-      );
+        });
+
+        if (coinsCollectedThisFrame > 0) {
+          const POP_DELAY_MS = 60; // slight delay so multiple pops don't start at the exact same time
+          for (let i = 0; i < coinsCollectedThisFrame; i++) {
+            setTimeout(() => {
+              playSound("coin");
+            }, i * POP_DELAY_MS);
+          }
+        }
+
+        return next;
+      });
 
       // Check collisions with executives (only if not invincible and cooldown is 0)
       if (invincibilityTimer === 0 && catchCooldown === 0) {
@@ -1678,7 +1705,7 @@ export const GameCanvas = ({
               return 1 - Math.pow(2, -8 * t);
             };
             const popProgress = easeOutPop(c.collectAnimationProgress);
-            const popHeight = CELL_SIZE * 2; // higher pop so it's clearly visible
+            const popHeight = CELL_SIZE * 4; // larger pop so it's clearly visible
             drawY -= popHeight * popProgress;
           }
 
