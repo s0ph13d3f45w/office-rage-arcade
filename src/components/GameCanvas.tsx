@@ -1297,7 +1297,7 @@ export const GameCanvas = ({
         });
 
         if (coinsCollectedThisFrame > 0) {
-          const POP_DELAY_MS = 60; // slight delay so multiple pops don't start at the exact same time
+          const POP_DELAY_MS = 120; // stagger by ~2 frames so multiple pops are clearly sequential
           for (let i = 0; i < coinsCollectedThisFrame; i++) {
             setTimeout(() => {
               playSound("coin");
@@ -1768,29 +1768,59 @@ export const GameCanvas = ({
     // Draw executives with vision cones using sprites
     executives.forEach((exec) => {
       if (!exec.isScared) {
-        // Draw vision cone
+        // Draw vision "cone": triangular beam plus an elliptical cap at the far edge
         ctx.save();
         ctx.globalAlpha = 0.2;
         ctx.fillStyle = exec.color;
-        ctx.beginPath();
+
         const startX = exec.position.x * CELL_SIZE + CELL_SIZE / 2;
         const startY = exec.position.y * CELL_SIZE + CELL_SIZE / 2;
-        ctx.moveTo(startX, startY);
-
         const angle = Math.atan2(exec.direction.y, exec.direction.x);
-        const coneAngle = Math.PI / 6; // Narrower 30-degree cone
+        const coneAngle = Math.PI / 6; // 30-degree beam
         const coneLength = VISION_DISTANCE * CELL_SIZE;
 
-        ctx.lineTo(
-          startX + Math.cos(angle - coneAngle) * coneLength,
-          startY + Math.sin(angle - coneAngle) * coneLength
-        );
-        ctx.lineTo(
-          startX + Math.cos(angle + coneAngle) * coneLength,
-          startY + Math.sin(angle + coneAngle) * coneLength
-        );
+        // Compute the two outer tips of the beam
+        const tipX1 = startX + Math.cos(angle - coneAngle) * coneLength;
+        const tipY1 = startY + Math.sin(angle - coneAngle) * coneLength;
+        const tipX2 = startX + Math.cos(angle + coneAngle) * coneLength;
+        const tipY2 = startY + Math.sin(angle + coneAngle) * coneLength;
+
+        // Build a single path that includes the beam and a rounded "cap"
+        // so we only fill once and transparency stays consistent.
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(tipX1, tipY1);
+
+        // Rounded cap: approximate a half-ellipse using a quadratic curve from tip1 to tip2.
+        const baseDX = tipX2 - tipX1;
+        const baseDY = tipY2 - tipY1;
+        const baseLen = Math.hypot(baseDX, baseDY) || 1;
+        const ux = baseDX / baseLen;
+        const uy = baseDY / baseLen;
+
+        const midTipX = (tipX1 + tipX2) / 2;
+        const midTipY = (tipY1 + tipY2) / 2;
+
+        // Normal pointing roughly "outwards" from the triangle (away from the executive)
+        let normalX = -uy;
+        let normalY = ux;
+        const fromMidToStartX = startX - midTipX;
+        const fromMidToStartY = startY - midTipY;
+        const dot = normalX * fromMidToStartX + normalY * fromMidToStartY;
+        if (dot > 0) {
+          // Flip so the rounded cap goes on the opposite side of the triangle
+          normalX = -normalX;
+          normalY = -normalY;
+        }
+
+        const capHeight = coneLength * Math.sin(coneAngle); // how "tall" the cap bulges out
+        const controlX = midTipX + normalX * capHeight;
+        const controlY = midTipY + normalY * capHeight;
+
+        ctx.quadraticCurveTo(controlX, controlY, tipX2, tipY2);
         ctx.closePath();
         ctx.fill();
+
         ctx.restore();
       }
 
