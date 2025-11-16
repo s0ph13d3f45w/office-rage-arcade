@@ -36,12 +36,13 @@ interface Collectible {
   animationStartPos?: Position; // For coins: starting position for bounce animation
   animationProgress?: number; // For coins: animation progress 0-1
   damageTimer?: number; // For damaged items: timer until they disappear (in frames, 60fps)
+  collectAnimationProgress?: number; // For coins: pop-up animation after collection
 }
 
-const CELL_SIZE = 40;
-const MAZE_WIDTH = 20;
-const MAZE_HEIGHT = 12;
-const VISION_DISTANCE = 3; // Reduced vision range
+const CELL_SIZE = 20;
+const MAZE_WIDTH = 40;
+const MAZE_HEIGHT = 24;
+const VISION_DISTANCE = 6; // Reduced vision range
 const SPEED_BOOST_DURATION = 180; // 3 seconds at 60fps
 const SCARED_DURATION = 180; // 3 seconds at 60fps
 const PLAYER_SPEED = 0.15; // Much slower movement
@@ -62,8 +63,8 @@ export const GameCanvas = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Define player spawn position first - this will be excluded from wall generation
-  const PLAYER_SPAWN_X = 10;
-  const PLAYER_SPAWN_Y = 6;
+  const PLAYER_SPAWN_X = MAZE_WIDTH / 2; // center of the maze
+  const PLAYER_SPAWN_Y = MAZE_HEIGHT / 2; // center of the maze
   const [player, setPlayer] = useState<Position>({
     x: PLAYER_SPAWN_X,
     y: PLAYER_SPAWN_Y,
@@ -168,33 +169,65 @@ export const GameCanvas = ({
     }
 
     // Internal maze walls
-    // Vertical walls
-    for (let y = 2; y < MAZE_HEIGHT - 2; y += 3) {
-      for (let x = 3; x < MAZE_WIDTH - 3; x += 4) {
-        // Skip if in player spawn row or column
-        if (!isPlayerSpawnArea(x, y)) {
-          m[y][x] = true;
+    // To keep the maze less dense while using a higher-resolution grid,
+    // we generate a "coarse" maze at half resolution and then scale it up.
+    // This guarantees that all corridors are at least 2 blocks wide.
+    const COARSE_WIDTH = MAZE_WIDTH / 2;
+    const COARSE_HEIGHT = MAZE_HEIGHT / 2;
+    const coarse: boolean[][] = Array(COARSE_HEIGHT)
+      .fill(0)
+      .map(() => Array(COARSE_WIDTH).fill(false));
+
+    const spawnCoarseX = PLAYER_SPAWN_X / 2;
+    const spawnCoarseY = PLAYER_SPAWN_Y / 2;
+    const isSpawnAreaCoarse = (x: number, y: number) => {
+      return x === spawnCoarseX || y === spawnCoarseY;
+    };
+
+    // Outer walls on coarse grid
+    for (let x = 0; x < COARSE_WIDTH; x++) {
+      if (!isSpawnAreaCoarse(x, 0)) {
+        coarse[0][x] = true;
+      }
+      if (!isSpawnAreaCoarse(x, COARSE_HEIGHT - 1)) {
+        coarse[COARSE_HEIGHT - 1][x] = true;
+      }
+    }
+    for (let y = 0; y < COARSE_HEIGHT; y++) {
+      if (!isSpawnAreaCoarse(0, y)) {
+        coarse[y][0] = true;
+      }
+      if (!isSpawnAreaCoarse(COARSE_WIDTH - 1, y)) {
+        coarse[y][COARSE_WIDTH - 1] = true;
+      }
+    }
+
+    // Coarse internal walls (same pattern as original smaller maze, but sparser)
+    // Vertical walls on coarse grid
+    for (let y = 2; y < COARSE_HEIGHT - 2; y += 3) {
+      for (let x = 3; x < COARSE_WIDTH - 3; x += 4) {
+        if (!isSpawnAreaCoarse(x, y)) {
+          coarse[y][x] = true;
         }
-        if (!isPlayerSpawnArea(x, y + 1) && Math.random() > 0.3) {
-          m[y + 1][x] = true;
+        if (!isSpawnAreaCoarse(x, y + 1) && Math.random() > 0.3) {
+          coarse[y + 1][x] = true;
         }
       }
     }
 
-    // Horizontal walls
-    for (let x = 2; x < MAZE_WIDTH - 2; x += 3) {
-      for (let y = 4; y < MAZE_HEIGHT - 4; y += 4) {
-        // Skip if in player spawn row or column
-        if (!isPlayerSpawnArea(x, y)) {
-          m[y][x] = true;
+    // Horizontal walls on coarse grid
+    for (let x = 2; x < COARSE_WIDTH - 2; x += 3) {
+      for (let y = 4; y < COARSE_HEIGHT - 4; y += 4) {
+        if (!isSpawnAreaCoarse(x, y)) {
+          coarse[y][x] = true;
         }
-        if (!isPlayerSpawnArea(x + 1, y) && Math.random() > 0.3) {
-          m[y][x + 1] = true;
+        if (!isSpawnAreaCoarse(x + 1, y) && Math.random() > 0.3) {
+          coarse[y][x + 1] = true;
         }
       }
     }
 
-    // Add some room-like structures (but exclude if they overlap with player spawn area)
+    // Coarse room-like structures
     const rooms = [
       { x: 5, y: 4, w: 3, h: 2 },
       { x: 13, y: 2, w: 4, h: 2 },
@@ -203,26 +236,46 @@ export const GameCanvas = ({
     ];
 
     rooms.forEach((room) => {
-      // Check if room overlaps with player spawn row or column
       const overlapsSpawnRow =
-        room.y <= PLAYER_SPAWN_Y && room.y + room.h > PLAYER_SPAWN_Y;
+        room.y <= spawnCoarseY && room.y + room.h > spawnCoarseY;
       const overlapsSpawnCol =
-        room.x <= PLAYER_SPAWN_X && room.x + room.w > PLAYER_SPAWN_X;
+        room.x <= spawnCoarseX && room.x + room.w > spawnCoarseX;
 
-      // Only add room if it doesn't overlap with player spawn area
       if (!overlapsSpawnRow && !overlapsSpawnCol) {
         for (let x = room.x; x < room.x + room.w; x++) {
-          m[room.y][x] = true;
-          m[room.y + room.h - 1][x] = true;
+          coarse[room.y][x] = true;
+          coarse[room.y + room.h - 1][x] = true;
         }
         for (let y = room.y; y < room.y + room.h; y++) {
-          m[y][room.x] = true;
-          m[y][room.x + room.w - 1] = true;
+          coarse[y][room.x] = true;
+          coarse[y][room.x + room.w - 1] = true;
         }
         // Add door
-        m[room.y + Math.floor(room.h / 2)][room.x] = false;
+        coarse[room.y + Math.floor(room.h / 2)][room.x] = false;
       }
     });
+
+    // Scale coarse maze to fine grid: each coarse wall becomes a 2x2 block.
+    for (let cy = 0; cy < COARSE_HEIGHT; cy++) {
+      for (let cx = 0; cx < COARSE_WIDTH; cx++) {
+        if (!coarse[cy][cx]) continue;
+        for (let dy = 0; dy < 2; dy++) {
+          for (let dx = 0; dx < 2; dx++) {
+            const fx = cx * 2 + dx;
+            const fy = cy * 2 + dy;
+            if (
+              fx >= 0 &&
+              fx < MAZE_WIDTH &&
+              fy >= 0 &&
+              fy < MAZE_HEIGHT &&
+              !isPlayerSpawnArea(fx, fy)
+            ) {
+              m[fy][fx] = true;
+            }
+          }
+        }
+      }
+    }
 
     // Ensure player spawn position itself is never a wall
     m[PLAYER_SPAWN_Y][PLAYER_SPAWN_X] = false;
@@ -231,16 +284,31 @@ export const GameCanvas = ({
   });
 
   const [executives, setExecutives] = useState<Executive[]>(() => {
-    // Helper to check if a position is walkable (not a wall and not player spawn area)
+    // Helper to check if an executive sprite (2x2 blocks) is walkable
     const isWalkable = (x: number, y: number) => {
-      return (
-        x >= 0 &&
-        x < MAZE_WIDTH &&
-        y >= 0 &&
-        y < MAZE_HEIGHT &&
-        !maze[y][x] &&
-        !isPlayerSpawnArea(x, y)
-      );
+      const SPRITE_LEFT_OFFSET = 0.5;
+      const SPRITE_RIGHT_OFFSET = 1.5;
+      const SPRITE_TOP_OFFSET = 0.5;
+      const SPRITE_BOTTOM_OFFSET = 1.5;
+
+      const leftBound = x - SPRITE_LEFT_OFFSET;
+      const rightBound = x + SPRITE_RIGHT_OFFSET;
+      const topBound = y - SPRITE_TOP_OFFSET;
+      const bottomBound = y + SPRITE_BOTTOM_OFFSET;
+
+      const minGridX = Math.max(0, Math.floor(leftBound));
+      const maxGridX = Math.min(MAZE_WIDTH - 1, Math.floor(rightBound));
+      const minGridY = Math.max(0, Math.floor(topBound));
+      const maxGridY = Math.min(MAZE_HEIGHT - 1, Math.floor(bottomBound));
+
+      for (let gy = minGridY; gy <= maxGridY; gy++) {
+        for (let gx = minGridX; gx <= maxGridX; gx++) {
+          if (maze[gy][gx] || isPlayerSpawnArea(gx, gy)) {
+            return false;
+          }
+        }
+      }
+      return true;
     };
 
     // Find safe positions in corners/edges for executives
@@ -291,7 +359,7 @@ export const GameCanvas = ({
         name: "Boomer Bob",
       },
       {
-        position: findSafePosition(17, 2),
+        position: findSafePosition(MAZE_WIDTH - 3, 2),
         direction: { x: 0, y: 1 },
         isScared: false,
         scaredTimer: 0,
@@ -299,7 +367,7 @@ export const GameCanvas = ({
         name: "Nostalgic Ned",
       },
       {
-        position: findSafePosition(2, 10),
+        position: findSafePosition(2, MAZE_HEIGHT - 3),
         direction: { x: 0, y: -1 },
         isScared: false,
         scaredTimer: 0,
@@ -307,7 +375,7 @@ export const GameCanvas = ({
         name: "Traditional Tom",
       },
       {
-        position: findSafePosition(17, 10),
+        position: findSafePosition(MAZE_WIDTH - 3, MAZE_HEIGHT - 3),
         direction: { x: -1, y: 0 },
         isScared: false,
         scaredTimer: 0,
@@ -319,10 +387,57 @@ export const GameCanvas = ({
 
   const [collectibles, setCollectibles] = useState<Collectible[]>(() => {
     const items: Collectible[] = [];
+    // Helper to check if a static collectible sprite (2x2 blocks) is clear of walls
+    // AND does not overlap any existing non-coin collectibles.
     const isWalkable = (x: number, y: number) => {
-      return (
-        x >= 0 && x < MAZE_WIDTH && y >= 0 && y < MAZE_HEIGHT && !maze[y][x]
-      );
+      const SPRITE_LEFT_OFFSET = 0.5;
+      const SPRITE_RIGHT_OFFSET = 1.5;
+      const SPRITE_TOP_OFFSET = 0.5;
+      const SPRITE_BOTTOM_OFFSET = 1.5;
+
+      const leftA = x - SPRITE_LEFT_OFFSET;
+      const rightA = x + SPRITE_RIGHT_OFFSET;
+      const topA = y - SPRITE_TOP_OFFSET;
+      const bottomA = y + SPRITE_BOTTOM_OFFSET;
+
+      const minGridX = Math.max(0, Math.floor(leftA));
+      const maxGridX = Math.min(MAZE_WIDTH - 1, Math.floor(rightA));
+      const minGridY = Math.max(0, Math.floor(topA));
+      const maxGridY = Math.min(MAZE_HEIGHT - 1, Math.floor(bottomA));
+
+      // Check walls
+      for (let gy = minGridY; gy <= maxGridY; gy++) {
+        for (let gx = minGridX; gx <= maxGridX; gx++) {
+          if (maze[gy][gx]) {
+            return false;
+          }
+        }
+      }
+
+      // Check overlap with already-placed non-coin collectibles
+      for (const other of items) {
+        if (
+          other.type === "coin" ||
+          other.type === "coffee" ||
+          other.collected
+        ) {
+          continue;
+        }
+        const ox = other.position.x;
+        const oy = other.position.y;
+        const leftB = ox - SPRITE_LEFT_OFFSET;
+        const rightB = ox + SPRITE_RIGHT_OFFSET;
+        const topB = oy - SPRITE_TOP_OFFSET;
+        const bottomB = oy + SPRITE_BOTTOM_OFFSET;
+
+        const overlapX = leftA < rightB && rightA > leftB;
+        const overlapY = topA < bottomB && bottomA > topB;
+        if (overlapX && overlapY) {
+          return false;
+        }
+      }
+
+      return true;
     };
 
     // Add computers
@@ -454,7 +569,7 @@ export const GameCanvas = ({
           c === nearby ? { ...c, damaged: true, damageTimer: timer } : c
         );
 
-        // Find 3 random nearby walkable positions
+        // Find 3 random nearby walkable positions (coins jump away from the item)
         const findNearbyWalkablePositions = (
           centerX: number,
           centerY: number,
@@ -484,10 +599,10 @@ export const GameCanvas = ({
             );
           };
 
-          // Try positions in a 3x3 area around the center
+          // Try positions in a wider 5x5 area around the center (jump twice as far)
           const candidates: Position[] = [];
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -3; dy <= 3; dy++) {
+            for (let dx = -3; dx <= 3; dx++) {
               const x = Math.floor(centerX) + dx;
               const y = Math.floor(centerY) + dy;
               if (isWalkable(x, y)) {
@@ -700,30 +815,36 @@ export const GameCanvas = ({
       if (dx !== 0 || dy !== 0) {
         setPlayerDirection({ x: dx, y: dy });
         setPlayer((prev) => {
-          const PLAYER_RADIUS = 0.3; // Player collision box radius
+          // Match collision box to the drawn player sprite (green debug rectangle).
+          // Sprite is 2x2 blocks and centered on the player position:
+          // it extends 0.5 blocks to the left/top and 1.5 blocks to the right/bottom.
+          const SPRITE_LEFT_OFFSET = 0.5;
+          const SPRITE_RIGHT_OFFSET = 1.5;
+          const SPRITE_TOP_OFFSET = 0.5;
+          const SPRITE_BOTTOM_OFFSET = 1.5;
 
-          // Helper to check if a position is valid (not in a wall)
-          const isWalkable = (x: number, y: number) => {
-            const gridX = Math.floor(x);
-            const gridY = Math.floor(y);
-            return (
-              gridX >= 0 &&
-              gridX < MAZE_WIDTH &&
-              gridY >= 0 &&
-              gridY < MAZE_HEIGHT &&
-              !maze[gridY]?.[gridX]
-            );
-          };
-
-          // Check if all corners of the player's collision box are walkable
+          // Check if the sprite at this position would overlap any walls
           const canMoveTo = (x: number, y: number) => {
-            // Check four corners of the collision box
-            return (
-              isWalkable(x - PLAYER_RADIUS, y - PLAYER_RADIUS) &&
-              isWalkable(x + PLAYER_RADIUS, y - PLAYER_RADIUS) &&
-              isWalkable(x - PLAYER_RADIUS, y + PLAYER_RADIUS) &&
-              isWalkable(x + PLAYER_RADIUS, y + PLAYER_RADIUS)
-            );
+            const leftBound = x - SPRITE_LEFT_OFFSET;
+            const rightBound = x + SPRITE_RIGHT_OFFSET;
+            const topBound = y - SPRITE_TOP_OFFSET;
+            const bottomBound = y + SPRITE_BOTTOM_OFFSET;
+
+            const minGridX = Math.max(0, Math.floor(leftBound));
+            const maxGridX = Math.min(MAZE_WIDTH - 1, Math.floor(rightBound));
+            const minGridY = Math.max(0, Math.floor(topBound));
+            const maxGridY = Math.min(MAZE_HEIGHT - 1, Math.floor(bottomBound));
+
+            for (let gy = minGridY; gy <= maxGridY; gy++) {
+              for (let gx = minGridX; gx <= maxGridX; gx++) {
+                if (maze[gy]?.[gx]) {
+                  // Would overlap a wall tile (yellow boundary)
+                  return false;
+                }
+              }
+            }
+
+            return true;
           };
 
           let newX = prev.x;
@@ -732,9 +853,10 @@ export const GameCanvas = ({
           // Try horizontal movement
           if (dx !== 0) {
             const testX = prev.x + dx;
+            // Keep sprite fully inside maze bounds
             if (
-              testX >= PLAYER_RADIUS &&
-              testX < MAZE_WIDTH - PLAYER_RADIUS &&
+              testX >= SPRITE_LEFT_OFFSET &&
+              testX <= MAZE_WIDTH - SPRITE_RIGHT_OFFSET &&
               canMoveTo(testX, prev.y)
             ) {
               newX = testX;
@@ -744,9 +866,10 @@ export const GameCanvas = ({
           // Try vertical movement
           if (dy !== 0) {
             const testY = prev.y + dy;
+            // Keep sprite fully inside maze bounds
             if (
-              testY >= PLAYER_RADIUS &&
-              testY < MAZE_HEIGHT - PLAYER_RADIUS &&
+              testY >= SPRITE_TOP_OFFSET &&
+              testY <= MAZE_HEIGHT - SPRITE_BOTTOM_OFFSET &&
               canMoveTo(newX, testY)
             ) {
               newY = testY;
@@ -775,6 +898,33 @@ export const GameCanvas = ({
       // Update executives
       setExecutives((prev) =>
         prev.map((exec) => {
+          // Collision helper: match executive sprite (2x2 blocks, centered)
+          const SPRITE_LEFT_OFFSET = 0.5;
+          const SPRITE_RIGHT_OFFSET = 1.5;
+          const SPRITE_TOP_OFFSET = 0.5;
+          const SPRITE_BOTTOM_OFFSET = 1.5;
+
+          const canExecMoveTo = (x: number, y: number) => {
+            const leftBound = x - SPRITE_LEFT_OFFSET;
+            const rightBound = x + SPRITE_RIGHT_OFFSET;
+            const topBound = y - SPRITE_TOP_OFFSET;
+            const bottomBound = y + SPRITE_BOTTOM_OFFSET;
+
+            const minGridX = Math.max(0, Math.floor(leftBound));
+            const maxGridX = Math.min(MAZE_WIDTH - 1, Math.floor(rightBound));
+            const minGridY = Math.max(0, Math.floor(topBound));
+            const maxGridY = Math.min(MAZE_HEIGHT - 1, Math.floor(bottomBound));
+
+            for (let gy = minGridY; gy <= maxGridY; gy++) {
+              for (let gx = minGridX; gx <= maxGridX; gx++) {
+                if (maze[gy]?.[gx]) {
+                  return false;
+                }
+              }
+            }
+            return true;
+          };
+
           if (exec.scaredTimer > 0) {
             // Move away from player when scared
             const dx = exec.position.x - player.x;
@@ -782,18 +932,25 @@ export const GameCanvas = ({
             const moveX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
             const moveY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
 
+            const targetX = exec.position.x + moveX;
+            const targetY = exec.position.y + moveY;
+
+            const newPos = canExecMoveTo(targetX, targetY)
+              ? {
+                  x: Math.max(
+                    SPRITE_LEFT_OFFSET,
+                    Math.min(MAZE_WIDTH - SPRITE_RIGHT_OFFSET, targetX)
+                  ),
+                  y: Math.max(
+                    SPRITE_TOP_OFFSET,
+                    Math.min(MAZE_HEIGHT - SPRITE_BOTTOM_OFFSET, targetY)
+                  ),
+                }
+              : exec.position;
+
             return {
               ...exec,
-              position: {
-                x: Math.max(
-                  0,
-                  Math.min(MAZE_WIDTH - 1, exec.position.x + moveX)
-                ),
-                y: Math.max(
-                  0,
-                  Math.min(MAZE_HEIGHT - 1, exec.position.y + moveY)
-                ),
-              },
+              position: newPos,
               scaredTimer: exec.scaredTimer - 1,
               isScared: exec.scaredTimer - 1 > 0,
             };
@@ -815,56 +972,32 @@ export const GameCanvas = ({
                 directions[Math.floor(Math.random() * directions.length)];
             }
 
-            const newX = exec.position.x + exec.direction.x * 0.5;
-            const newY = exec.position.y + exec.direction.y * 0.5;
+            const step = 0.5;
+            const candidateDirs = [
+              exec.direction,
+              // Perpendicular alternatives
+              exec.direction.x !== 0 ? { x: 0, y: 1 } : { x: 1, y: 0 },
+              exec.direction.x !== 0 ? { x: 0, y: -1 } : { x: -1, y: 0 },
+              // Opposite direction as last resort
+              { x: -exec.direction.x, y: -exec.direction.y },
+            ];
 
-            const gridX = Math.floor(newX);
-            const gridY = Math.floor(newY);
-
-            if (
-              newX >= 0 &&
-              newX < MAZE_WIDTH &&
-              newY >= 0 &&
-              newY < MAZE_HEIGHT &&
-              !maze[gridY][gridX]
-            ) {
-              return {
-                ...exec,
-                position: { x: newX, y: newY },
-              };
-            } else {
-              // Hit wall - try to navigate around it smartly
-              const perpDirections =
-                exec.direction.x !== 0
-                  ? [
-                      { x: 0, y: 1 },
-                      { x: 0, y: -1 },
-                    ]
-                  : [
-                      { x: 1, y: 0 },
-                      { x: -1, y: 0 },
-                    ];
-
-              // Try perpendicular directions first
-              for (const dir of perpDirections) {
-                const testX = Math.floor(exec.position.x + dir.x);
-                const testY = Math.floor(exec.position.y + dir.y);
-                if (
-                  testX >= 0 &&
-                  testX < MAZE_WIDTH &&
-                  testY >= 0 &&
-                  testY < MAZE_HEIGHT &&
-                  !maze[testY][testX]
-                ) {
-                  return { ...exec, direction: dir };
-                }
+            for (const dir of candidateDirs) {
+              const newX = exec.position.x + dir.x * step;
+              const newY = exec.position.y + dir.y * step;
+              if (
+                newX >= SPRITE_LEFT_OFFSET &&
+                newX <= MAZE_WIDTH - SPRITE_RIGHT_OFFSET &&
+                newY >= SPRITE_TOP_OFFSET &&
+                newY <= MAZE_HEIGHT - SPRITE_BOTTOM_OFFSET &&
+                canExecMoveTo(newX, newY)
+              ) {
+                return {
+                  ...exec,
+                  position: { x: newX, y: newY },
+                  direction: dir,
+                };
               }
-
-              // If blocked on all sides, try opposite direction
-              return {
-                ...exec,
-                direction: { x: -exec.direction.x, y: -exec.direction.y },
-              };
             }
           }
 
@@ -872,12 +1005,15 @@ export const GameCanvas = ({
         })
       );
 
-      // Update coin expiration timers and animation progress
+      // Update coin expiration timers and bounce / collect animations
       setCollectibles((prev) => {
         return prev.map((c) => {
-          if (c.type === "coin" && !c.collected) {
-            let updated = { ...c };
+          if (c.type !== "coin") return c;
 
+          let updated = { ...c };
+
+          // Handle coins that have not been collected yet
+          if (!c.collected) {
             // Update expiration timer
             if (c.expireTimer !== undefined) {
               const newTimer = c.expireTimer - 1;
@@ -888,21 +1024,40 @@ export const GameCanvas = ({
               updated = { ...updated, expireTimer: newTimer };
             }
 
-            // Update animation progress (animate over 30 frames = 0.5 seconds)
+            // Update bounce animation progress (animate over 30 frames = 0.5 seconds)
             if (c.animationProgress !== undefined && c.animationProgress < 1) {
               const newProgress = Math.min(1, c.animationProgress + 1 / 30);
               updated = { ...updated, animationProgress: newProgress };
-              // Remove animation properties once complete
+              // Remove bounce properties once complete
               if (newProgress >= 1) {
                 const { animationStartPos, animationProgress, ...rest } =
                   updated;
-                return rest;
+                updated = { ...rest };
               }
             }
 
             return updated;
           }
-          return c;
+
+          // Handle collected coins with pop-up animation
+          if (
+            c.collectAnimationProgress !== undefined &&
+            c.collectAnimationProgress < 1
+          ) {
+            const newProgress = Math.min(
+              1,
+              c.collectAnimationProgress + 1 / 10
+            ); // ~0.5s pop
+            updated = { ...updated, collectAnimationProgress: newProgress };
+            if (newProgress >= 1) {
+              // Remove pop animation properties; coin will no longer be drawn
+              const { collectAnimationProgress, ...rest } = updated;
+              return rest;
+            }
+            return updated;
+          }
+
+          return updated;
         });
       });
 
@@ -964,18 +1119,54 @@ export const GameCanvas = ({
             ): Position | null => {
               const checked = new Set<string>();
               const isWalkable = (x: number, y: number) => {
+                const SPRITE_LEFT_OFFSET = 0.5;
+                const SPRITE_RIGHT_OFFSET = 1.5;
+                const SPRITE_TOP_OFFSET = 0.5;
+                const SPRITE_BOTTOM_OFFSET = 1.5;
+
                 const gridX = Math.floor(x);
                 const gridY = Math.floor(y);
                 const key = `${gridX},${gridY}`;
                 if (checked.has(key)) return false;
                 checked.add(key);
-                return (
-                  gridX >= 0 &&
-                  gridX < MAZE_WIDTH &&
-                  gridY >= 0 &&
-                  gridY < MAZE_HEIGHT &&
-                  !maze[gridY]?.[gridX]
-                );
+
+                // First, must be inside bounds and not a wall
+                if (
+                  gridX < 0 ||
+                  gridX >= MAZE_WIDTH ||
+                  gridY < 0 ||
+                  gridY >= MAZE_HEIGHT ||
+                  maze[gridY]?.[gridX]
+                ) {
+                  return false;
+                }
+
+                // Now ensure the 2x2 sprite at this position doesn't overlap
+                // any existing non-coin collectibles
+                const leftA = x - SPRITE_LEFT_OFFSET;
+                const rightA = x + SPRITE_RIGHT_OFFSET;
+                const topA = y - SPRITE_TOP_OFFSET;
+                const bottomA = y + SPRITE_BOTTOM_OFFSET;
+
+                for (const c of currentCollectibles) {
+                  if (c.collected || c.type === "coin" || c.type === "coffee") {
+                    continue;
+                  }
+                  const ox = c.position.x;
+                  const oy = c.position.y;
+                  const leftB = ox - SPRITE_LEFT_OFFSET;
+                  const rightB = ox + SPRITE_RIGHT_OFFSET;
+                  const topB = oy - SPRITE_TOP_OFFSET;
+                  const bottomB = oy + SPRITE_BOTTOM_OFFSET;
+
+                  const overlapX = leftA < rightB && rightA > leftB;
+                  const overlapY = topA < bottomB && bottomA > topB;
+                  if (overlapX && overlapY) {
+                    return false;
+                  }
+                }
+
+                return true;
               };
 
               // Try positions in a 3x3 area around the executive
@@ -1041,21 +1232,51 @@ export const GameCanvas = ({
         return prev - 1;
       });
 
-      // Collect coins by walking over them
-      const playerGX = Math.floor(player.x);
-      const playerGY = Math.floor(player.y);
+      // Collect coins when they touch the player's bounding box (green rectangle)
+      // but only after they have finished their bounce animation (landed).
       setCollectibles((prev) =>
         prev.map((c) => {
-          if (
-            c.type === "coin" &&
-            !c.collected &&
-            c.position.x === playerGX &&
-            c.position.y === playerGY
-          ) {
+          if (c.type !== "coin" || c.collected) return c;
+
+          // Skip coins that are still bouncing toward their landing tile
+          if (c.animationProgress !== undefined && c.animationProgress < 1) {
+            return c;
+          }
+
+          // Player sprite: 2x2 blocks, centered on player position
+          const PLAYER_LEFT_OFFSET = 0.5;
+          const PLAYER_RIGHT_OFFSET = 1.5;
+          const PLAYER_TOP_OFFSET = 0.5;
+          const PLAYER_BOTTOM_OFFSET = 1.5;
+
+          const playerLeft = player.x - PLAYER_LEFT_OFFSET;
+          const playerRight = player.x + PLAYER_RIGHT_OFFSET;
+          const playerTop = player.y - PLAYER_TOP_OFFSET;
+          const playerBottom = player.y + PLAYER_BOTTOM_OFFSET;
+
+          // Coin sprite: ~1.6x1.6 blocks, centered on its cell
+          const COIN_HALF_SIZE = 0.8; // 1.6 / 2
+          const coinCenterX = c.position.x + 0.5;
+          const coinCenterY = c.position.y + 0.5;
+          const coinLeft = coinCenterX - COIN_HALF_SIZE;
+          const coinRight = coinCenterX + COIN_HALF_SIZE;
+          const coinTop = coinCenterY - COIN_HALF_SIZE;
+          const coinBottom = coinCenterY + COIN_HALF_SIZE;
+
+          const overlapX = playerLeft < coinRight && playerRight > coinLeft;
+          const overlapY = playerTop < coinBottom && playerBottom > coinTop;
+
+          if (overlapX && overlapY) {
             updateScore(c.value ?? 1);
             playSound("coin");
-            return { ...c, collected: true };
+            return {
+              ...c,
+              collected: true,
+              collectAnimationProgress: 0, // start pop-up animation
+              expireTimer: undefined,
+            };
           }
+
           return c;
         })
       );
@@ -1264,6 +1485,14 @@ export const GameCanvas = ({
           ctx.shadowBlur = 5;
           ctx.fillRect(posX + 4, posY + 4, CELL_SIZE - 8, CELL_SIZE - 8);
 
+          // Debug: bright yellow boundary around wall tile
+          ctx.save();
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = "#ffff00";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(posX, posY, CELL_SIZE, CELL_SIZE);
+          ctx.restore();
+
           // Reset shadow
           ctx.shadowBlur = 0;
         }
@@ -1289,11 +1518,22 @@ export const GameCanvas = ({
 
     // Draw collectibles using sprites
     collectibles.forEach((c) => {
-      if (c.collected) return;
+      // For most collectibles, skip if collected.
+      // For coins, we still draw them while their collect pop-up animation is running.
+      if (
+        c.collected &&
+        !(
+          c.type === "coin" &&
+          c.collectAnimationProgress !== undefined &&
+          c.collectAnimationProgress < 1
+        )
+      ) {
+        return;
+      }
 
       const posX = c.position.x * CELL_SIZE;
       const posY = c.position.y * CELL_SIZE;
-      const spriteSize = CELL_SIZE * 1.2; // Slightly larger than cell
+      const spriteSize = CELL_SIZE * 2; // Width equivalent to two blocks
       const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
       const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
@@ -1301,15 +1541,25 @@ export const GameCanvas = ({
         const img = c.damaged ? sprites.computerDamaged : sprites.computer;
         if (img) {
           // Flash effect when damaged item is about to expire (after 2 seconds, 60 frames remaining)
+          let flashed = false;
           if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
             // Flash every 10 frames (fast blinking)
             const flashAlpha =
               Math.floor(c.damageTimer / 10) % 2 === 0 ? 0.3 : 1.0;
             ctx.save();
             ctx.globalAlpha = flashAlpha;
+            flashed = true;
           }
           ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
-          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+
+          // Purple debug boundary around computer
+          ctx.save();
+          ctx.strokeStyle = "#bf5fff"; // bright purple
+          ctx.lineWidth = 2;
+          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
+          ctx.restore();
+
+          if (flashed) {
             ctx.restore();
           }
         }
@@ -1317,15 +1567,25 @@ export const GameCanvas = ({
         const img = c.damaged ? sprites.whiteboardPainted : sprites.whiteboard;
         if (img) {
           // Flash effect when damaged item is about to expire (after 2 seconds, 60 frames remaining)
+          let flashed = false;
           if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
             // Flash every 10 frames (fast blinking)
             const flashAlpha =
               Math.floor(c.damageTimer / 10) % 2 === 0 ? 0.3 : 1.0;
             ctx.save();
             ctx.globalAlpha = flashAlpha;
+            flashed = true;
           }
           ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
-          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+
+          // Purple debug boundary around whiteboard
+          ctx.save();
+          ctx.strokeStyle = "#bf5fff";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
+          ctx.restore();
+
+          if (flashed) {
             ctx.restore();
           }
         }
@@ -1333,20 +1593,30 @@ export const GameCanvas = ({
         const img = c.damaged ? sprites.coworkerPied : sprites.coworker;
         if (img) {
           // Flash effect when damaged item is about to expire (after 2 seconds, 60 frames remaining)
+          let flashed = false;
           if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
             // Flash every 10 frames (fast blinking)
             const flashAlpha =
               Math.floor(c.damageTimer / 10) % 2 === 0 ? 0.3 : 1.0;
             ctx.save();
             ctx.globalAlpha = flashAlpha;
+            flashed = true;
           }
           ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
-          if (c.damaged && c.damageTimer !== undefined && c.damageTimer < 60) {
+
+          // Purple debug boundary around coworker
+          ctx.save();
+          ctx.strokeStyle = "#bf5fff";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
+          ctx.restore();
+
+          if (flashed) {
             ctx.restore();
           }
         }
       } else if (c.type === "coffee") {
-        if (sprites.coffee)
+        if (sprites.coffee) {
           ctx.drawImage(
             sprites.coffee,
             offsetX,
@@ -1354,9 +1624,17 @@ export const GameCanvas = ({
             spriteSize,
             spriteSize
           );
+
+          // Purple debug boundary around coffee machine
+          ctx.save();
+          ctx.strokeStyle = "#bf5fff";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
+          ctx.restore();
+        }
       } else if (c.type === "coin") {
         if (sprites.coin) {
-          // Calculate animated position if coin is still bouncing
+          // Calculate animated position if coin is still bouncing (spawn animation)
           let drawX = posX;
           let drawY = posY;
 
@@ -1390,28 +1668,70 @@ export const GameCanvas = ({
             drawY = startY + (endY - startY) * progress - verticalOffset;
           }
 
-          // Make coin slightly smaller and animated
-          const coinSize = CELL_SIZE * 0.8;
+          // If coin is in "collected" pop-up animation, lift it upward
+          if (
+            c.collectAnimationProgress !== undefined &&
+            c.collectAnimationProgress < 1
+          ) {
+            // Exponential ease-out: very fast at the start, then slows as it rises
+            const easeOutPop = (t: number): number => {
+              return 1 - Math.pow(2, -8 * t);
+            };
+            const popProgress = easeOutPop(c.collectAnimationProgress);
+            const popHeight = CELL_SIZE * 2; // higher pop so it's clearly visible
+            drawY -= popHeight * popProgress;
+          }
+
+          // Make coin slightly smaller and animated (but still roughly two blocks wide)
+          const coinSize = CELL_SIZE * 1.6;
           const coinOffset = (CELL_SIZE - coinSize) / 2;
 
           // Flash effect when coin is about to expire (after 2 seconds, 60 frames remaining)
-          if (c.expireTimer !== undefined && c.expireTimer < 60) {
+          let flashed = false;
+          if (
+            c.expireTimer !== undefined &&
+            c.expireTimer < 60 &&
+            !c.collected
+          ) {
             // Flash every 10 frames (fast blinking)
             const flashAlpha =
               Math.floor(c.expireTimer / 10) % 2 === 0 ? 0.3 : 1.0;
             ctx.save();
             ctx.globalAlpha = flashAlpha;
+            flashed = true;
           }
+
+          // Apply a horizontal squash to fake a rotation while bouncing / popping
+          ctx.save();
+          const centerX = drawX + coinOffset + coinSize / 2;
+          const centerY = drawY + coinOffset + coinSize / 2;
+          ctx.translate(centerX, centerY);
+
+          // Use whichever animation is active (bounce or collect pop) to drive the "spin"
+          const tBounce =
+            c.animationProgress !== undefined ? c.animationProgress : 0;
+          const tPop =
+            c.collectAnimationProgress !== undefined
+              ? c.collectAnimationProgress
+              : 0;
+          const t = Math.min(1, Math.max(tBounce, tPop));
+
+          // 1.5 full "flips" over the course of the animation
+          const spins = 1.5;
+          const angle = t * Math.PI * 2 * spins;
+          const scaleX = Math.abs(Math.cos(angle)); // 1 → 0 → 1 fake rotation
+          ctx.scale(scaleX, 1);
 
           ctx.drawImage(
             sprites.coin,
-            drawX + coinOffset,
-            drawY + coinOffset,
+            -coinSize / 2,
+            -coinSize / 2,
             coinSize,
             coinSize
           );
+          ctx.restore();
 
-          if (c.expireTimer !== undefined && c.expireTimer < 60) {
+          if (flashed) {
             ctx.restore();
           }
         }
@@ -1447,21 +1767,30 @@ export const GameCanvas = ({
         ctx.restore();
       }
 
-      // Draw executive sprite
+      // Draw executive sprite (width equivalent to two blocks)
       const posX = exec.position.x * CELL_SIZE;
       const posY = exec.position.y * CELL_SIZE;
-      const spriteSize = CELL_SIZE * 1.4;
+      const spriteSize = CELL_SIZE * 2;
       const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
       const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
       const img = exec.isScared ? sprites.executiveScared : sprites.executive;
-      if (img) ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+      if (img) {
+        ctx.drawImage(img, offsetX, offsetY, spriteSize, spriteSize);
+
+        // Debug: bright green boundary around executive sprite
+        ctx.save();
+        ctx.strokeStyle = "#00ff00";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
+        ctx.restore();
+      }
     });
 
-    // Draw player sprite
+    // Draw player sprite (width equivalent to two blocks)
     const posX = player.x * CELL_SIZE;
     const posY = player.y * CELL_SIZE;
-    const spriteSize = CELL_SIZE * 1.4;
+    const spriteSize = CELL_SIZE * 2;
     const offsetX = posX - (spriteSize - CELL_SIZE) / 2;
     const offsetY = posY - (spriteSize - CELL_SIZE) / 2;
 
@@ -1484,6 +1813,13 @@ export const GameCanvas = ({
 
     if (sprites.player) {
       ctx.drawImage(sprites.player, offsetX, offsetY, spriteSize, spriteSize);
+
+      // Debug: bright green boundary around player sprite
+      ctx.save();
+      ctx.strokeStyle = "#00ff00";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(offsetX, offsetY, spriteSize, spriteSize);
+      ctx.restore();
     }
 
     ctx.shadowBlur = 0;
